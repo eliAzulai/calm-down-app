@@ -105,6 +105,182 @@ function saveProfilePrefs(id, prefs) {
   }
 }
 
+var SIGNAL_LIMIT = 500;
+var SIGNAL_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+var DEV_CONTROLS_KEY = 'calm-station-dev-controls';
+
+function getSignalKey(profileId) {
+  return 'calm-station-' + profileId + '-signals';
+}
+
+function readSignals(profileId) {
+  try {
+    var raw = localStorage.getItem(getSignalKey(profileId));
+    if (!raw) return [];
+    var parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(function(event) {
+      return event && typeof event === 'object' && !Array.isArray(event);
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+function writeSignals(profileId, events) {
+  try {
+    var cutoff = Date.now() - SIGNAL_MAX_AGE_MS;
+    var capped = events.filter(function(event) {
+      if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
+      return !event.ts || new Date(event.ts).getTime() >= cutoff;
+    }).slice(-SIGNAL_LIMIT);
+    localStorage.setItem(getSignalKey(profileId), JSON.stringify(capped));
+  } catch (e) {
+    // silent
+  }
+}
+
+function getProfileById(profileId) {
+  return state.profiles.find(function(profile) {
+    return profile && profile.id === profileId;
+  }) || null;
+}
+
+function getSignalContext(profileId) {
+  var profile = getProfileById(profileId);
+  var mode = null;
+  var currentAudio = typeof audio !== 'undefined' && audio ? audio : null;
+
+  try {
+    mode = MODES[state.canvasMode] || null;
+  } catch (e) {
+    mode = null;
+  }
+
+  return {
+    theme: profile ? profile.theme : null,
+    mode: mode,
+    soundId: currentAudio ? currentAudio.currentId || null : null,
+    soundPlaying: currentAudio ? currentAudio.playing === true : false,
+  };
+}
+
+function recordSignal(type, payload) {
+  if (!state.activeProfileId) return;
+  recordSignalForProfile(state.activeProfileId, type, payload);
+}
+
+function recordSignalForProfile(profileId, type, payload) {
+  if (!profileId || !type) return;
+  var events = readSignals(profileId);
+  events.push({
+    id: generateId(),
+    ts: new Date().toISOString(),
+    type: type,
+    context: getSignalContext(profileId),
+    payload: payload || {},
+  });
+  writeSignals(profileId, events);
+}
+
+function secondsBetween(start, end) {
+  if (!start || !end) return 0;
+  var startMs = new Date(start).getTime();
+  var endMs = new Date(end).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
+  return Math.max(0, Math.round((endMs - startMs) / 1000));
+}
+
+function isValidDateValue(value) {
+  return !!value && !Number.isNaN(new Date(value).getTime());
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return '0s';
+  var minutes = Math.floor(seconds / 60);
+  var rest = seconds % 60;
+  if (minutes === 0) return rest + 's';
+  return minutes + 'm ' + rest + 's';
+}
+
+function computeSignalSummary(profileId) {
+  var events = readSignals(profileId);
+  var modeTime = {};
+  var soundCounts = {};
+  var promptShown = 0;
+  var promptOpened = 0;
+  var promptIgnored = 0;
+  var exerciseCompleted = 0;
+  var sessions = 0;
+  var completedSessions = 0;
+  var totalSessionSeconds = 0;
+  var activeSessionStart = null;
+  var activeMode = null;
+  var activeModeStart = null;
+
+  events.forEach(function(event) {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) return;
+    var payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+
+    if (event.type === 'session_start') {
+      sessions += 1;
+      activeSessionStart = event.ts;
+    }
+    if (event.type === 'session_end' && activeSessionStart) {
+      var sessionSeconds = secondsBetween(activeSessionStart, event.ts);
+      if (isValidDateValue(activeSessionStart) && isValidDateValue(event.ts)) {
+        totalSessionSeconds += sessionSeconds;
+        completedSessions += 1;
+      }
+      activeSessionStart = null;
+    }
+    if (event.type === 'mode_start') {
+      activeMode = payload.mode;
+      activeModeStart = event.ts;
+    }
+    if (event.type === 'mode_end' && activeModeStart) {
+      var mode = payload.mode || activeMode || 'unknown';
+      modeTime[mode] = (modeTime[mode] || 0) + secondsBetween(activeModeStart, event.ts);
+      activeMode = null;
+      activeModeStart = null;
+    }
+    if (event.type === 'sound_select') {
+      var soundId = payload.soundId || 'unknown';
+      soundCounts[soundId] = (soundCounts[soundId] || 0) + 1;
+    }
+    if (event.type === 'sound_stop') {
+      soundCounts.off = (soundCounts.off || 0) + 1;
+    }
+    if (event.type === 'prompt_shown') promptShown += 1;
+    if (event.type === 'prompt_opened') promptOpened += 1;
+    if (event.type === 'prompt_ignored') promptIgnored += 1;
+    if (event.type === 'exercise_completed') exerciseCompleted += 1;
+  });
+
+  var topMode = Object.keys(modeTime).sort(function(a, b) {
+    return modeTime[b] - modeTime[a];
+  })[0] || null;
+
+  var topSound = Object.keys(soundCounts).sort(function(a, b) {
+    return soundCounts[b] - soundCounts[a];
+  })[0] || null;
+
+  return {
+    events: events,
+    sessions: sessions,
+    averageSessionSeconds: completedSessions ? Math.round(totalSessionSeconds / completedSessions) : 0,
+    modeTime: modeTime,
+    topMode: topMode,
+    topModeSeconds: topMode ? modeTime[topMode] : 0,
+    topSound: topSound,
+    soundCounts: soundCounts,
+    promptShown: promptShown,
+    promptOpened: promptOpened,
+    promptIgnored: promptIgnored,
+    exerciseCompleted: exerciseCompleted,
+  };
+}
+
 // --- Generate ID ---
 
 function generateId() {
