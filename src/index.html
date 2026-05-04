@@ -186,6 +186,43 @@
   </div>
 </div>
 
+<div id="screen-dev" class="screen" aria-hidden="true" inert>
+  <div class="dev-shell">
+    <header class="dev-header">
+      <div>
+        <p class="dev-eyebrow">Developer Mode</p>
+        <h2>Preference Signals</h2>
+      </div>
+      <button id="dev-back" aria-label="Back to profiles">Back</button>
+    </header>
+
+    <section class="dev-section">
+      <div class="dev-section-header">
+        <h3>Profile Summaries</h3>
+        <button id="dev-export">Export JSON</button>
+      </div>
+      <div id="dev-profiles" class="dev-profiles"></div>
+    </section>
+
+    <section class="dev-section">
+      <div class="dev-section-header">
+        <h3>Developer Controls</h3>
+        <button id="dev-save-controls">Save Controls</button>
+      </div>
+      <div id="dev-controls" class="dev-controls"></div>
+      <p id="dev-status" class="dev-status" aria-live="polite"></p>
+    </section>
+
+    <section class="dev-section">
+      <div class="dev-section-header">
+        <h3>Recent Events</h3>
+        <button id="dev-reset">Reset Signals</button>
+      </div>
+      <div id="dev-events" class="dev-events"></div>
+    </section>
+  </div>
+</div>
+
 <script src="app.js"></script>
 <script>
 // Service Worker Registration
