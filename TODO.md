@@ -121,6 +121,23 @@ The PRD.md is the source of truth for requirements and design decisions.
 - [ ] Final performance audit on iPad
 - [ ] Update printable PDF card if design changed significantly
 
+## Phase 9: Developer Feedback Loop
+> Goal: Learn what actually works before guessing at the next features
+
+Design spec: `docs/superpowers/specs/2026-05-04-preference-signals-control-loop-design.md`
+
+- [ ] Add invisible per-profile preference signal tracking
+- [ ] Record canvas session start/end, time by visual mode, mode switches, touch activity, and clear events
+- [ ] Record sound behavior: panel opens, sound selected, sound stopped, and debounced volume changes
+- [ ] Record gentle prompt behavior: shown, opened, ignored, exercise chosen, completed, or closed early
+- [ ] Store capped local-only raw signal logs per profile
+- [ ] Compute per-profile summaries for developer review
+- [ ] Add hidden developer view via `?dev=true`
+- [ ] Add JSON export for signal data
+- [ ] Add local developer controls for controlled experiments/defaults
+- [ ] Test that kid-facing screens show no analytics or developer UI
+- [ ] Test that signal logs cap correctly and existing phase tests still pass
+
 ---
 
 ## Backlog (Future)
