@@ -126,17 +126,18 @@ The PRD.md is the source of truth for requirements and design decisions.
 
 Design spec: `docs/superpowers/specs/2026-05-04-preference-signals-control-loop-design.md`
 
-- [ ] Add invisible per-profile preference signal tracking
-- [ ] Record canvas session start/end, time by visual mode, mode switches, touch activity, and clear events
-- [ ] Record sound behavior: panel opens, sound selected, sound stopped, and debounced volume changes
-- [ ] Record gentle prompt behavior: shown, opened, ignored, exercise chosen, completed, or closed early
-- [ ] Store capped local-only raw signal logs per profile
-- [ ] Compute per-profile summaries for developer review
-- [ ] Add hidden developer view via `?dev=true`
-- [ ] Add JSON export for signal data
-- [ ] Add local developer controls for controlled experiments/defaults
-- [ ] Test that kid-facing screens show no analytics or developer UI
-- [ ] Test that signal logs cap correctly and existing phase tests still pass
+- [x] Add invisible per-profile preference signal tracking
+- [x] Record canvas session start/end, time by visual mode, mode switches, touch activity, and clear events
+- [x] Record sound behavior: panel opens, sound selected, sound stopped, and debounced volume changes
+- [x] Record gentle prompt behavior: shown, opened, ignored, exercise chosen, completed, or closed early
+- [x] Store capped local-only raw signal logs per profile
+- [x] Compute per-profile summaries for developer review
+- [x] Add hidden developer view via `?dev=true`
+- [x] Add JSON export for signal data
+- [x] Add local developer controls for controlled experiments/defaults
+- [x] Test that kid-facing screens show no analytics or developer UI
+- [x] Test that signal logs cap correctly
+- [ ] Refresh legacy phase tests for current app behavior before claiming the full suite passes
 
 ---
 
