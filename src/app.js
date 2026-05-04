@@ -109,6 +109,33 @@ var SIGNAL_LIMIT = 500;
 var SIGNAL_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 var DEV_CONTROLS_KEY = 'calm-station-dev-controls';
 
+function getDevControls() {
+  try {
+    var raw = localStorage.getItem(DEV_CONTROLS_KEY);
+    if (!raw) return {};
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveDevControls(controls) {
+  try {
+    localStorage.setItem(DEV_CONTROLS_KEY, JSON.stringify(controls || {}));
+  } catch (e) {
+    // silent
+  }
+}
+
+function getProfileDevControl(profileId) {
+  var controls = getDevControls();
+  var control = controls[profileId];
+  if (!control || typeof control !== 'object' || Array.isArray(control)) return {};
+  return control;
+}
+
 function getSignalKey(profileId) {
   return 'calm-station-' + profileId + '-signals';
 }
@@ -298,6 +325,23 @@ const $screenProfiles = document.getElementById('screen-profiles');
 const $screenCanvas = document.getElementById('screen-canvas');
 const $btnBack = document.getElementById('btn-back');
 const $ambientCanvas = document.getElementById('ambient-canvas');
+
+function setScreenAccessibility(screenEl, isActive) {
+  if (!screenEl) return;
+  if (isActive) {
+    screenEl.removeAttribute('aria-hidden');
+    screenEl.removeAttribute('inert');
+  } else {
+    screenEl.setAttribute('aria-hidden', 'true');
+    screenEl.setAttribute('inert', '');
+  }
+}
+
+function setActiveScreenAccessibility(activeScreenEl) {
+  [$screenProfiles, $screenCanvas, $screenParent, $screenDev].forEach(function(screenEl) {
+    setScreenAccessibility(screenEl, screenEl === activeScreenEl);
+  });
+}
 
 // --- Render Profile Cards ---
 
@@ -585,7 +629,9 @@ const MODE_LABELS = {
 function enterProfile(profile) {
   state.screen = 'canvas';
   state.activeProfileId = profile.id;
-  state.canvasMode = 0;
+  var devControl = getProfileDevControl(profile.id);
+  var defaultModeIndex = MODES.indexOf(devControl.defaultMode);
+  state.canvasMode = defaultModeIndex >= 0 ? defaultModeIndex : 0;
 
   // Apply theme to canvas screen
   $screenCanvas.classList.remove('theme-ocean', 'theme-sunset', 'theme-forest', 'theme-neon', 'theme-mono');
@@ -599,6 +645,7 @@ function enterProfile(profile) {
 
   $screenProfiles.classList.remove('active');
   $screenCanvas.classList.add('active');
+  setActiveScreenAccessibility($screenCanvas);
   $ambientCanvas.classList.add('hidden');
 
   initCanvas();
@@ -622,6 +669,7 @@ function backToProfiles() {
 
   $screenCanvas.classList.remove('active');
   $screenProfiles.classList.add('active');
+  setActiveScreenAccessibility($screenProfiles);
   $ambientCanvas.classList.remove('hidden');
 }
 
@@ -1210,6 +1258,13 @@ var gentlePrompt = {
 function startGentlePromptTimer() {
   if (gentlePrompt.shown) return;
   clearTimeout(gentlePrompt.timer);
+  var devControl = state.activeProfileId ? getProfileDevControl(state.activeProfileId) : {};
+  var promptDelaySeconds = Number(devControl.promptDelaySeconds);
+  if (devControl.promptEnabled === false) return;
+  if (Number.isFinite(promptDelaySeconds) && promptDelaySeconds > 0 && promptDelaySeconds <= 600) {
+    gentlePrompt.timer = setTimeout(showGentleOrb, promptDelaySeconds * 1000);
+    return;
+  }
   // 3-5 min random delay (180-300s)
   var delay = (180 + Math.random() * 120) * 1000;
   gentlePrompt.timer = setTimeout(showGentleOrb, delay);
@@ -2393,6 +2448,15 @@ var $telegramUrl = document.getElementById('telegram-url');
 var $telegramSave = document.getElementById('telegram-save');
 var $telegramTest = document.getElementById('telegram-test');
 var $telegramStatus = document.getElementById('telegram-status');
+var $screenDev = document.getElementById('screen-dev');
+var $devBack = document.getElementById('dev-back');
+var $devProfiles = document.getElementById('dev-profiles');
+var $devControls = document.getElementById('dev-controls');
+var $devEvents = document.getElementById('dev-events');
+var $devExport = document.getElementById('dev-export');
+var $devReset = document.getElementById('dev-reset');
+var $devSaveControls = document.getElementById('dev-save-controls');
+var $devStatus = document.getElementById('dev-status');
 
 var PARENT_STORAGE_KEY = 'calm-station-parent';
 
@@ -2436,6 +2500,10 @@ if ($title) {
 // URL param access
 function checkParentUrlParam() {
   var params = new URLSearchParams(window.location.search);
+  if (params.get('dev') === 'true') {
+    setTimeout(openDevDashboard, 100);
+    return;
+  }
   if (params.get('parent') === 'true') {
     openParentDashboard();
   }
@@ -2446,6 +2514,8 @@ function openParentDashboard() {
   $screenProfiles.classList.remove('active');
   $screenCanvas.classList.remove('active');
   $screenParent.classList.add('active');
+  $screenDev.classList.remove('active');
+  setActiveScreenAccessibility($screenParent);
   $ambientCanvas.classList.add('hidden');
 
   // Load saved webhook URL
@@ -2459,10 +2529,253 @@ function closeParentDashboard() {
   state.screen = 'profiles';
   $screenParent.classList.remove('active');
   $screenProfiles.classList.add('active');
+  setActiveScreenAccessibility($screenProfiles);
   $ambientCanvas.classList.remove('hidden');
 }
 
 $parentBack.addEventListener('click', closeParentDashboard);
+
+// --- Developer Dashboard ---
+
+function openDevDashboard() {
+  state.screen = 'dev';
+  $screenProfiles.classList.remove('active');
+  $screenCanvas.classList.remove('active');
+  $screenParent.classList.remove('active');
+  $screenDev.classList.add('active');
+  setActiveScreenAccessibility($screenDev);
+  $ambientCanvas.classList.add('hidden');
+  renderDevDashboard();
+}
+
+function closeDevDashboard() {
+  state.screen = 'profiles';
+  $screenDev.classList.remove('active');
+  $screenCanvas.classList.remove('active');
+  $screenParent.classList.remove('active');
+  $screenProfiles.classList.add('active');
+  setActiveScreenAccessibility($screenProfiles);
+  $ambientCanvas.classList.remove('hidden');
+}
+
+function renderDevDashboard() {
+  renderDevProfiles();
+  renderDevControls();
+  renderDevEvents();
+}
+
+function escapeHTML(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function devStat(value, label) {
+  return '<div class="dev-stat">' +
+    '<span class="dev-stat-value">' + escapeHTML(value) + '</span>' +
+    '<span class="dev-stat-label">' + escapeHTML(label) + '</span>' +
+  '</div>';
+}
+
+function getSoundLabel(soundId) {
+  if (!soundId) return 'None';
+  if (soundId === 'off') return 'Stopped';
+  var sound = SOUNDS.find(function(item) { return item.id === soundId; });
+  return sound ? sound.name : soundId;
+}
+
+function getValidProfiles() {
+  var profiles = Array.isArray(state.profiles) ? state.profiles : [];
+  return profiles.filter(function(profile) {
+    return profile && typeof profile === 'object';
+  });
+}
+
+function renderDevProfiles() {
+  $devProfiles.textContent = '';
+  var profiles = getValidProfiles();
+
+  if (profiles.length === 0) {
+    $devProfiles.innerHTML = '<div class="parent-no-data">No profiles yet. Create a kid profile to see preference signals.</div>';
+    return;
+  }
+
+  profiles.forEach(function(profile) {
+    var summary = computeSignalSummary(profile.id);
+    var topMode = summary.topMode ? (MODE_LABELS[summary.topMode] || summary.topMode) : 'No mode time yet';
+    var topModeTime = summary.topModeSeconds ? formatDuration(summary.topModeSeconds) : '0s';
+    var soundUse = summary.topSound ? getSoundLabel(summary.topSound) + ' (' + summary.soundCounts[summary.topSound] + ')' : 'No sound use yet';
+
+    var card = document.createElement('div');
+    card.className = 'dev-profile-card';
+    card.innerHTML = '<h4>' + escapeHTML(profile.name || 'Unnamed profile') + '</h4>' +
+      '<div class="dev-stat-grid">' +
+        devStat(summary.sessions, 'Sessions') +
+        devStat(formatDuration(summary.averageSessionSeconds), 'Avg Session') +
+        devStat(topMode, 'Top Mode') +
+        devStat(topModeTime, 'Top Mode Time') +
+        devStat(soundUse, 'Sound Use') +
+        devStat(summary.promptOpened, 'Prompt Opens') +
+      '</div>';
+    $devProfiles.appendChild(card);
+  });
+}
+
+function renderDevControls() {
+  $devControls.textContent = '';
+  var profiles = getValidProfiles();
+
+  if (profiles.length === 0) {
+    $devControls.innerHTML = '<div class="parent-no-data">No profiles available for developer controls.</div>';
+    return;
+  }
+
+  profiles.forEach(function(profile) {
+    var control = getProfileDevControl(profile.id);
+    var promptEnabled = control.promptEnabled === false ? 'false' : 'true';
+    var promptDelaySeconds = Number(control.promptDelaySeconds);
+    var promptDelayValue = Number.isFinite(promptDelaySeconds) && promptDelaySeconds > 0 ? String(promptDelaySeconds) : '';
+    var experimentLabel = control.experimentLabel || '';
+    var options = '<option value="">App default</option>' + MODES.map(function(mode) {
+      var selected = control.defaultMode === mode ? ' selected' : '';
+      return '<option value="' + escapeHTML(mode) + '"' + selected + '>' +
+        escapeHTML(MODE_LABELS[mode] || mode) +
+      '</option>';
+    }).join('');
+
+    var card = document.createElement('div');
+    card.className = 'dev-control-card';
+    card.dataset.profileId = profile.id;
+    card.innerHTML = '<h4>' + escapeHTML(profile.name || 'Unnamed profile') + '</h4>' +
+      '<label>Default Mode' +
+        '<select data-dev-control="defaultMode">' + options + '</select>' +
+      '</label>' +
+      '<label>Prompt Delay Seconds' +
+        '<input data-dev-control="promptDelaySeconds" inputmode="numeric" type="number" min="1" max="600" step="1" value="' + escapeHTML(promptDelayValue) + '">' +
+      '</label>' +
+      '<label>Prompt Enabled' +
+        '<select data-dev-control="promptEnabled">' +
+          '<option value="true"' + (promptEnabled === 'true' ? ' selected' : '') + '>Enabled</option>' +
+          '<option value="false"' + (promptEnabled === 'false' ? ' selected' : '') + '>Disabled</option>' +
+        '</select>' +
+      '</label>' +
+      '<label>Experiment Label' +
+        '<input data-dev-control="experimentLabel" type="text" maxlength="80" value="' + escapeHTML(experimentLabel) + '">' +
+      '</label>';
+    $devControls.appendChild(card);
+  });
+}
+
+function renderDevEvents() {
+  $devEvents.textContent = '';
+  var profiles = getValidProfiles();
+  var events = [];
+
+  profiles.forEach(function(profile) {
+    readSignals(profile.id).forEach(function(event) {
+      if (!event || typeof event !== 'object') return;
+      events.push({ profile: profile, event: event });
+    });
+  });
+
+  events.sort(function(a, b) {
+    return new Date(b.event.ts).getTime() - new Date(a.event.ts).getTime();
+  });
+
+  if (events.length === 0) {
+    $devEvents.innerHTML = '<div class="parent-no-data">No preference signal events recorded yet.</div>';
+    return;
+  }
+
+  events.slice(0, 50).forEach(function(entry) {
+    var payloadText = '';
+    try {
+      payloadText = JSON.stringify(entry.event.payload || {});
+    } catch (e) {
+      payloadText = '{}';
+    }
+
+    var row = document.createElement('div');
+    row.className = 'dev-event-row';
+    row.innerHTML = '<span>' + escapeHTML(formatSessionDate(entry.event.ts)) + '</span>' +
+      '<span class="dev-event-type">' + escapeHTML(entry.event.type || 'unknown') + '</span>' +
+      '<span>' + escapeHTML(entry.profile.name || 'Unnamed profile') + ': ' + escapeHTML(payloadText) + '</span>';
+    $devEvents.appendChild(row);
+  });
+}
+
+function exportSignalData() {
+  var profiles = Array.isArray(state.profiles) ? state.profiles : [];
+  return {
+    exportedAt: new Date().toISOString(),
+    profiles: profiles.filter(Boolean).map(function(profile) {
+      return {
+        id: profile.id,
+        name: profile.name,
+        theme: profile.theme,
+        summary: computeSignalSummary(profile.id),
+        events: readSignals(profile.id),
+      };
+    }),
+  };
+}
+
+function saveControlsFromUI() {
+  var controls = {};
+  Array.prototype.forEach.call($devControls.querySelectorAll('.dev-control-card'), function(card) {
+    var profileId = card.dataset.profileId;
+    if (!profileId) return;
+    var defaultMode = card.querySelector('[data-dev-control="defaultMode"]').value;
+    var delayInput = card.querySelector('[data-dev-control="promptDelaySeconds"]').value;
+    var promptEnabled = card.querySelector('[data-dev-control="promptEnabled"]').value;
+    var experimentLabel = card.querySelector('[data-dev-control="experimentLabel"]').value.trim();
+    var profileControl = {};
+    var delaySeconds = Number(delayInput);
+
+    if (MODES.indexOf(defaultMode) >= 0) profileControl.defaultMode = defaultMode;
+    if (Number.isFinite(delaySeconds) && delaySeconds > 0 && delaySeconds <= 600) {
+      profileControl.promptDelaySeconds = Math.round(delaySeconds);
+    }
+    profileControl.promptEnabled = promptEnabled !== 'false';
+    if (experimentLabel) profileControl.experimentLabel = experimentLabel;
+    controls[profileId] = profileControl;
+  });
+  saveDevControls(controls);
+  return controls;
+}
+
+if (typeof window !== 'undefined') {
+  window.CalmStationDev = {
+    exportSignals: exportSignalData,
+    recordTestEvent: function(profileId, type, payload) {
+      recordSignalForProfile(profileId, type, payload);
+    },
+    resetSignals: function() {
+      var profiles = Array.isArray(state.profiles) ? state.profiles : [];
+      profiles.forEach(function(profile) {
+        if (profile) localStorage.removeItem(getSignalKey(profile.id));
+      });
+    },
+  };
+}
+
+$devBack.addEventListener('click', closeDevDashboard);
+$devSaveControls.addEventListener('click', function() {
+  saveControlsFromUI();
+  renderDevDashboard();
+  $devStatus.textContent = 'Developer controls saved.';
+});
+$devExport.addEventListener('click', function() {
+  $devStatus.textContent = JSON.stringify(exportSignalData(), null, 2);
+});
+$devReset.addEventListener('click', function() {
+  window.CalmStationDev.resetSignals();
+  renderDevDashboard();
+  $devStatus.textContent = 'Preference signals reset.';
+});
 
 function getProfileSessions(profileId) {
   try {
