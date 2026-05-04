@@ -55,6 +55,30 @@ async function ensureProfile(page) {
   await page.waitForTimeout(500);
   await ensureProfile(page);
 
+  const initialScreenAccessibility = await page.evaluate(() => {
+    const screenIds = ['screen-profiles', 'screen-canvas', 'screen-parent', 'screen-dev'];
+    return screenIds
+      .map(id => document.getElementById(id))
+      .filter(Boolean)
+      .map(screen => ({
+        id: screen.id,
+        active: screen.classList.contains('active'),
+        ariaHidden: screen.getAttribute('aria-hidden'),
+        inert: screen.hasAttribute('inert'),
+      }));
+  });
+  const initialProfileScreenOnlyAccessible = initialScreenAccessibility.every(screen => {
+    if (screen.id === 'screen-profiles') {
+      return screen.active && screen.ariaHidden !== 'true' && screen.inert === false;
+    }
+    return screen.active === false && screen.ariaHidden === 'true' && screen.inert === true;
+  });
+  log(
+    'Initial load exposes only active profile screen to assistive tech',
+    initialProfileScreenOnlyAccessible,
+    JSON.stringify(initialScreenAccessibility)
+  );
+
   const kidDevScreenVisible = await page.evaluate(() =>
     document.getElementById('screen-dev')?.classList.contains('active') === true
   );

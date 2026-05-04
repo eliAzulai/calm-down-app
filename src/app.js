@@ -2458,6 +2458,8 @@ var $devReset = document.getElementById('dev-reset');
 var $devSaveControls = document.getElementById('dev-save-controls');
 var $devStatus = document.getElementById('dev-status');
 
+setActiveScreenAccessibility($screenProfiles);
+
 var PARENT_STORAGE_KEY = 'calm-station-parent';
 
 function getParentPrefs() {
