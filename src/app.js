@@ -171,13 +171,17 @@ function recordSignal(type, payload) {
 }
 
 function recordSignalForProfile(profileId, type, payload) {
+  recordSignalForProfileWithContext(profileId, type, payload, getSignalContext(profileId));
+}
+
+function recordSignalForProfileWithContext(profileId, type, payload, context) {
   if (!profileId || !type) return;
   var events = readSignals(profileId);
   events.push({
     id: generateId(),
     ts: new Date().toISOString(),
     type: type,
-    context: getSignalContext(profileId),
+    context: context,
     payload: payload || {},
   });
   writeSignals(profileId, events);
@@ -599,20 +603,22 @@ function enterProfile(profile) {
 
   initCanvas();
   showModeIndicator();
+  startSignalSession();
   loadSoundPrefs();
   startGentlePromptTimer();
 }
 
 function backToProfiles() {
   state.screen = 'profiles';
-  state.activeProfileId = null;
 
+  endSignalSession();
   stopCanvas();
   stopSoundOnExit();
   stopGentlePromptTimer();
   closeBreatheOverlay();
   closeGroundOverlay();
   closeAllEnergyOverlays();
+  state.activeProfileId = null;
 
   $screenCanvas.classList.remove('active');
   $screenProfiles.classList.add('active');
@@ -622,9 +628,7 @@ function backToProfiles() {
 function closeAllEnergyOverlays() {
   document.getElementById('energy-checkin').classList.remove('active');
   document.getElementById('energy-checkout').classList.remove('active');
-  exerciseFlow.exerciseType = null;
-  exerciseFlow.energyBefore = null;
-  exerciseFlow.energyAfter = null;
+  closeExerciseFlow();
 }
 
 $btnBack.addEventListener('click', backToProfiles);
@@ -664,6 +668,13 @@ var canvas = {
   scale: 1,
   pinchStartDist: 0,
   pinchStartScale: 1,
+};
+
+var signalSession = {
+  active: false,
+  mode: null,
+  touchCount: 0,
+  touchTimer: null,
 };
 
 function initCanvas() {
@@ -1027,6 +1038,7 @@ $mainCanvas.addEventListener('pointerdown', function(e) {
   var y = e.clientY;
 
   canvas.touches[e.pointerId] = { x: x, y: y, prevX: x, prevY: y };
+  queueTouchSignal();
 
   var mode = MODES[state.canvasMode];
   if (mode === 'particles') spawnParticles(x, y, 8);
@@ -1096,7 +1108,10 @@ $mainCanvas.addEventListener('pointercancel', function(e) {
 // --- Mode Cycling ---
 
 function cycleMode() {
+  var previousMode = MODES[state.canvasMode];
   state.canvasMode = (state.canvasMode + 1) % MODES.length;
+  var nextMode = MODES[state.canvasMode];
+  recordModeChange(previousMode, nextMode);
   // Clear current effects for clean transition
   canvas.trails = [];
   canvas.particles = [];
@@ -1119,9 +1134,50 @@ function showModeIndicator() {
   }, 1500);
 }
 
+function startSignalSession() {
+  if (!state.activeProfileId || signalSession.active) return;
+  signalSession.active = true;
+  signalSession.mode = MODES[state.canvasMode];
+  signalSession.touchCount = 0;
+  recordSignal('session_start', {});
+  recordSignal('mode_start', { mode: signalSession.mode });
+}
+
+function endSignalSession() {
+  if (!state.activeProfileId || !signalSession.active) return;
+  flushTouchSignals();
+  recordSignal('mode_end', { mode: signalSession.mode });
+  recordSignal('session_end', {});
+  signalSession.active = false;
+  signalSession.mode = null;
+}
+
+function recordModeChange(previousMode, nextMode) {
+  recordSignal('mode_end', { mode: previousMode });
+  recordSignal('mode_cycle', { from: previousMode, to: nextMode });
+  recordSignal('mode_start', { mode: nextMode });
+  signalSession.mode = nextMode;
+}
+
+function queueTouchSignal() {
+  if (!signalSession.active) return;
+  signalSession.touchCount += 1;
+  clearTimeout(signalSession.touchTimer);
+  signalSession.touchTimer = setTimeout(flushTouchSignals, 2000);
+}
+
+function flushTouchSignals() {
+  clearTimeout(signalSession.touchTimer);
+  signalSession.touchTimer = null;
+  if (!signalSession.touchCount) return;
+  recordSignal('canvas_touch', { count: signalSession.touchCount });
+  signalSession.touchCount = 0;
+}
+
 // --- Clear Button ---
 
 $btnClear.addEventListener('click', function() {
+  recordSignal('clear_canvas', { mode: MODES[state.canvasMode] });
   canvas.trails = [];
   canvas.particles = [];
   canvas.ripples = [];
@@ -1171,8 +1227,12 @@ function showGentleOrb() {
   if (state.screen !== 'canvas' || gentlePrompt.shown) return;
   gentlePrompt.shown = true;
   $gentleOrb.classList.add('visible');
+  recordSignal('prompt_shown', {});
   // Auto-fade after 30s if not tapped
-  gentlePrompt.fadeTimer = setTimeout(hideGentleOrb, 30000);
+  gentlePrompt.fadeTimer = setTimeout(function() {
+    recordSignal('prompt_ignored', {});
+    hideGentleOrb();
+  }, 30000);
 }
 
 function hideGentleOrb() {
@@ -1193,6 +1253,7 @@ $gentleOrb.addEventListener('click', function(e) {
   } else {
     $promptChoice.classList.add('visible');
     gentlePrompt.choiceOpen = true;
+    recordSignal('prompt_opened', {});
   }
 });
 
@@ -1372,6 +1433,7 @@ var exerciseFlow = {
   exerciseType: null,   // 'breathe' | 'ground'
   energyBefore: null,
   energyAfter: null,
+  completed: false,
 };
 
 // --- Energy Check-In ---
@@ -1383,8 +1445,10 @@ var $energyCheckinGo = document.getElementById('energy-checkin-go');
 
 function startEnergyCheckin(exerciseType) {
   exerciseFlow.exerciseType = exerciseType;
+  recordSignal('exercise_choice', { exerciseType: exerciseFlow.exerciseType });
   exerciseFlow.energyBefore = null;
   exerciseFlow.energyAfter = null;
+  exerciseFlow.completed = false;
   renderEnergyLevels($energyCheckinLevels, 'checkin');
   $energyCheckinGo.disabled = true;
   $energyCheckin.classList.add('active');
@@ -1437,6 +1501,7 @@ $energyCheckinLevels.addEventListener('click', function(e) {
 $energyCheckinGo.addEventListener('click', function() {
   if (exerciseFlow.energyBefore === null) return;
   $energyCheckin.classList.remove('active');
+  recordSignal('exercise_started', { exerciseType: exerciseFlow.exerciseType });
   if (exerciseFlow.exerciseType === 'breathe') {
     openBreatheOverlay();
   } else if (exerciseFlow.exerciseType === 'ground') {
@@ -1446,7 +1511,7 @@ $energyCheckinGo.addEventListener('click', function() {
 
 $energyCheckinClose.addEventListener('click', function() {
   $energyCheckin.classList.remove('active');
-  exerciseFlow.exerciseType = null;
+  closeExerciseFlow();
 });
 
 // --- Grounding Exercise ---
@@ -1637,19 +1702,23 @@ function showCheckoutComparison() {
 
 $checkoutFinish.addEventListener('click', function() {
   $energyCheckout.classList.remove('active');
-  exerciseFlow.exerciseType = null;
+  closeExerciseFlow();
 });
 
 $energyCheckoutClose.addEventListener('click', function() {
   $energyCheckout.classList.remove('active');
-  exerciseFlow.exerciseType = null;
+  closeExerciseFlow();
 });
 
 // Close exercise flow without checkout (user closed mid-exercise)
 function closeExerciseFlow() {
+  if (exerciseFlow.exerciseType && !exerciseFlow.completed) {
+    recordSignal('exercise_closed', { exerciseType: exerciseFlow.exerciseType });
+  }
   exerciseFlow.exerciseType = null;
   exerciseFlow.energyBefore = null;
   exerciseFlow.energyAfter = null;
+  exerciseFlow.completed = false;
 }
 
 // --- Session Logging ---
@@ -1673,6 +1742,12 @@ function logSession() {
   } catch (e) {
     // silent
   }
+  recordSignal('exercise_completed', {
+    exerciseType: exerciseFlow.exerciseType,
+    energyBefore: exerciseFlow.energyBefore,
+    energyAfter: exerciseFlow.energyAfter,
+  });
+  exerciseFlow.completed = true;
 
   // Notify parent
   var profile = state.profiles.find(function(p) { return p && p.id === state.activeProfileId; });
@@ -1963,7 +2038,8 @@ var generators = {
 
 // --- Crossfade ---
 
-function playSound(soundId) {
+function playSound(soundId, options) {
+  options = options || {};
   ensureAudioContext();
   if (!audio.ctx) return;
   if (audio.ctx.state === 'suspended') audio.ctx.resume();
@@ -1983,6 +2059,7 @@ function playSound(soundId) {
     audio.currentNodes = null;
     audio.playing = false;
     updateSoundUI();
+    recordSignal('sound_stop', { soundId: soundId });
     saveSoundPrefs();
     return;
   }
@@ -1998,6 +2075,9 @@ function playSound(soundId) {
   audio.currentId = soundId;
   audio.currentNodes = nodes;
   audio.playing = true;
+  if (!options.suppressSignal) {
+    recordSignal('sound_select', { soundId: soundId });
+  }
   updateSoundUI();
   saveSoundPrefs();
 }
@@ -2006,10 +2086,12 @@ function stopSound() {
   if (!audio.ctx || !audio.currentNodes) return;
   var ctx = audio.ctx;
   var old = audio.currentNodes;
+  var stoppedSoundId = audio.currentId;
   old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
   setTimeout(function() { try { old.stop(); } catch(e) {} }, 600);
   audio.currentNodes = null;
   audio.playing = false;
+  if (stoppedSoundId) recordSignal('sound_stop', { soundId: stoppedSoundId });
   updateSoundUI();
   saveSoundPrefs();
 }
@@ -2026,11 +2108,25 @@ function togglePlayPause() {
   }
 }
 
+var volumeSignalTimer = null;
+
+function recordVolumeChange(val) {
+  var profileId = state.activeProfileId;
+  var context = profileId ? getSignalContext(profileId) : null;
+  clearTimeout(volumeSignalTimer);
+  volumeSignalTimer = setTimeout(function() {
+    if (profileId) {
+      recordSignalForProfileWithContext(profileId, 'volume_change', { volume: val }, context);
+    }
+  }, 500);
+}
+
 function setVolume(val) {
   audio.volume = val;
   if (audio.masterGain) {
     audio.masterGain.gain.setTargetAtTime(val, audio.ctx.currentTime, 0.05);
   }
+  recordVolumeChange(val);
   saveSoundPrefs();
 }
 
@@ -2084,6 +2180,7 @@ $btnSound.addEventListener('click', function(e) {
   ensureAudioContext(); // iOS requires user gesture
   soundPanelOpen = !soundPanelOpen;
   $soundPanel.classList.toggle('open', soundPanelOpen);
+  if (soundPanelOpen) recordSignal('sound_panel_open', {});
   if (soundPanelOpen) renderSoundOptions();
 });
 
@@ -2142,7 +2239,7 @@ function loadSoundPrefs() {
   }
   if (prefs.soundId && prefs.soundPlaying) {
     audio.currentId = prefs.soundId;
-    playSound(prefs.soundId);
+    playSound(prefs.soundId, { suppressSignal: true });
   } else {
     audio.currentId = prefs.soundId || null;
   }
