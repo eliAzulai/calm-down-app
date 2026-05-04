@@ -137,7 +137,7 @@ Design spec: `docs/superpowers/specs/2026-05-04-preference-signals-control-loop-
 - [x] Add local developer controls for controlled experiments/defaults
 - [x] Test that kid-facing screens show no analytics or developer UI
 - [x] Test that signal logs cap correctly
-- [ ] Refresh legacy phase tests for current app behavior before claiming the full suite passes
+- [x] Refresh legacy phase tests for current app behavior before claiming the full suite passes
 
 ---
 

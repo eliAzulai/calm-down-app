@@ -133,14 +133,30 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase2-ripples.png' });
 
-  // CHECK 7: Double-tap wraps back to trails
+  // CHECK 7: Double-tap continues through full current mode set
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(100);
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(400);
+
+  const modeGeometric = await page.$eval('#mode-indicator', el => el.textContent);
+  log('Double-tap cycles to Geometric', modeGeometric === 'Geometric', modeGeometric);
+
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(100);
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(400);
+
+  const modeDrawing = await page.$eval('#mode-indicator', el => el.textContent);
+  log('Double-tap cycles to Freeform', modeDrawing === 'Freeform', modeDrawing);
+
   await page.mouse.click(400, 500);
   await page.waitForTimeout(100);
   await page.mouse.click(400, 500);
   await page.waitForTimeout(400);
 
   const modeWrapped = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Mode wraps back to Finger Trails', modeWrapped === 'Finger Trails', modeWrapped);
+  log('Modes wrap back to Finger Trails after 5 modes', modeWrapped === 'Finger Trails', modeWrapped);
 
   // CHECK 8: Clear button exists and works
   const clearBtn = await page.$('#btn-clear');

@@ -110,8 +110,18 @@ function log(check, pass, detail) {
 
   // === BREATHING EXERCISE ===
 
-  // Click Breathe
+  // Click Breathe — current app routes through energy check-in before opening exercise
   await page.click('[data-exercise="breathe"]');
+  await page.waitForTimeout(400);
+
+  const checkinVisible = await page.evaluate(() =>
+    document.getElementById('energy-checkin')?.classList.contains('active')
+  );
+  log('Energy check-in opens before breathing overlay', checkinVisible);
+
+  await page.click('#energy-checkin-levels .energy-btn:nth-child(3)');
+  await page.waitForTimeout(100);
+  await page.click('#energy-checkin-go');
   await page.waitForTimeout(400);
 
   // CHECK: Overlay opens
@@ -249,6 +259,18 @@ function log(check, pass, detail) {
     !document.getElementById('breathe-overlay')?.classList.contains('active')
   );
   log('Done/Skip closes overlay', closedAfterDone);
+
+  const checkoutVisible = await page.evaluate(() =>
+    document.getElementById('energy-checkout')?.classList.contains('active')
+  );
+  log('Energy checkout opens after breathing completion', checkoutVisible);
+
+  await page.click('#energy-checkout-levels .energy-btn:nth-child(3)');
+  await page.waitForTimeout(100);
+  await page.click('#energy-checkout-done');
+  await page.waitForTimeout(200);
+  await page.click('#checkout-finish');
+  await page.waitForTimeout(300);
 
   // === BACK BUTTON CLEANUP ===
   // Verify going back clears everything

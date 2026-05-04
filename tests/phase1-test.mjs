@@ -98,7 +98,7 @@ function log(check, pass, detail) {
 
   // Theme picker works
   const themeOptions = await page.$$('.theme-option');
-  log('5. Theme picker has 3 options', themeOptions.length === 3, `found ${themeOptions.length}`);
+  log('5. Theme picker has 5 options', themeOptions.length === 5, `found ${themeOptions.length}`);
 
   const sunsetOpt = await page.$('[data-theme="sunset"]');
   await sunsetOpt.click();
@@ -195,8 +195,8 @@ function log(check, pass, detail) {
   const profilesHidden = await page.evaluate(() => !document.getElementById('screen-profiles')?.classList.contains('active'));
   log('10. Profile screen is hidden', profilesHidden);
 
-  const placeholderText = await page.$eval('.placeholder-text', el => el.textContent);
-  log('10. Canvas placeholder text shows', placeholderText === 'Canvas coming soon', placeholderText);
+  const mainCanvasExists = await page.$('#main-canvas');
+  log('10. Main canvas exists', mainCanvasExists !== null);
 
   // Check theme applied to canvas screen
   const canvasHasTheme = await page.evaluate(() => {
