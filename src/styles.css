@@ -511,7 +511,7 @@ html, body {
   pointer-events: auto;
 }
 
-#btn-back, #btn-clear, #btn-sound {
+#btn-back, #btn-clear, #btn-sound, #btn-save {
   position: absolute;
   top: calc(var(--space-lg) + env(safe-area-inset-top, 0));
   width: 48px;
@@ -538,7 +538,11 @@ html, body {
   right: calc(var(--space-lg) + env(safe-area-inset-right, 0));
 }
 
-#btn-back:active, #btn-clear:active, #btn-sound:active {
+#btn-save {
+  right: calc(var(--space-lg) + 112px + env(safe-area-inset-right, 0));
+}
+
+#btn-back:active, #btn-clear:active, #btn-sound:active, #btn-save:active {
   transform: scale(0.93);
   background: rgba(255, 255, 255, 0.06);
 }

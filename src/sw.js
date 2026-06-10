@@ -1,4 +1,4 @@
-var CACHE_NAME = 'calm-station-v1';
+var CACHE_NAME = 'calm-station-v2';
 var ASSETS = [
   './',
   './index.html',

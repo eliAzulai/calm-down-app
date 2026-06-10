@@ -21,7 +21,10 @@ function log(check, pass, detail) {
   const page = await context.newPage();
 
   const consoleErrors = [];
-  page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  page.on('console', msg => {
+    // cert errors come from the sandboxed-CI TLS proxy, not the app
+    if (msg.type() === 'error' && !msg.text().includes('ERR_CERT_AUTHORITY_INVALID')) consoleErrors.push(msg.text());
+  });
   page.on('pageerror', err => consoleErrors.push(err.message));
 
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -67,9 +70,9 @@ function log(check, pass, detail) {
   });
   log('Sound panel opens on click', panelOpen);
 
-  // CHECK 4: Sound options rendered (Rain + Drone)
+  // CHECK 4: Sound options rendered (Rain, Drone, Ocean, White Noise after phase 4)
   const soundOpts = await page.$$('.sound-option');
-  log('Two sound options', soundOpts.length === 2, `found ${soundOpts.length}`);
+  log('Four sound options', soundOpts.length === 4, `found ${soundOpts.length}`);
 
   const optTexts = await page.evaluate(() => {
     return Array.from(document.querySelectorAll('.sound-option')).map(b => b.textContent.trim());

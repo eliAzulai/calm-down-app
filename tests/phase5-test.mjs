@@ -20,7 +20,10 @@ function log(check, pass, detail) {
   const page = await context.newPage();
 
   const consoleErrors = [];
-  page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  page.on('console', msg => {
+    // cert errors come from the sandboxed-CI TLS proxy, not the app
+    if (msg.type() === 'error' && !msg.text().includes('ERR_CERT_AUTHORITY_INVALID')) consoleErrors.push(msg.text());
+  });
   page.on('pageerror', err => consoleErrors.push(err.message));
 
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -110,8 +113,19 @@ function log(check, pass, detail) {
 
   // === BREATHING EXERCISE ===
 
-  // Click Breathe
+  // Click Breathe — phase 6 added an energy check-in before the exercise
   await page.click('[data-exercise="breathe"]');
+  await page.waitForTimeout(400);
+
+  const checkinActive = await page.evaluate(() =>
+    document.getElementById('energy-checkin')?.classList.contains('active')
+  );
+  log('Energy check-in opens first (phase 6 flow)', checkinActive);
+
+  // Complete the check-in to reach the breathing overlay
+  await page.click('#energy-checkin-levels .energy-btn:nth-child(3)');
+  await page.waitForTimeout(100);
+  await page.click('#energy-checkin-go');
   await page.waitForTimeout(400);
 
   // CHECK: Overlay opens
@@ -249,6 +263,15 @@ function log(check, pass, detail) {
     !document.getElementById('breathe-overlay')?.classList.contains('active')
   );
   log('Done/Skip closes overlay', closedAfterDone);
+
+  // Phase 6 flow: completing the exercise opens the energy check-out — dismiss it
+  const checkoutOpen = await page.evaluate(() =>
+    document.getElementById('energy-checkout')?.classList.contains('active')
+  );
+  if (checkoutOpen) {
+    await page.click('#energy-checkout-close');
+    await page.waitForTimeout(300);
+  }
 
   // === BACK BUTTON CLEANUP ===
   // Verify going back clears everything
