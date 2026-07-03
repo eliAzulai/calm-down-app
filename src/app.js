@@ -2868,7 +2868,9 @@ function renderDevProfiles() {
     var topMode = summary.topMode ? (MODE_LABELS[summary.topMode] || summary.topMode) : 'No mode time yet';
     var topModeTime = summary.topModeSeconds ? formatDuration(summary.topModeSeconds) : '0s';
     var soundUse = summary.topSound ? getSoundLabel(summary.topSound) + ' (' + summary.soundCounts[summary.topSound] + ')' : 'No sound use yet';
-    var musicUse = summary.topMusic ? getSoundLabel(summary.topMusic) + ' (' + summary.musicCounts[summary.topMusic] + ')' : 'No music use yet';
+    var mt = getMusicTrack(summary.topMusic);
+    var musicName = mt ? mt.name : summary.topMusic;
+    var musicUse = summary.topMusic ? musicName + ' (' + summary.musicCounts[summary.topMusic] + ')' : 'No music use yet';
 
     var card = document.createElement('div');
     card.className = 'dev-profile-card';
