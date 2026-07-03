@@ -1,5 +1,6 @@
 // Soundscape 2.0 test — layered audio (music/ambient/sfx buses).
 // Requires: python3 -m http.server 8080 --directory src   (or npx http-server src -p 8080)
+// NOTE: checks are stateful and order-dependent by design (one continuous session); see phase9-test.mjs for the isolated-state alternative.
 import { chromium } from 'playwright';
 
 const BASE = 'http://localhost:8080';
@@ -197,6 +198,7 @@ await check('Toggle-off while paused clears that half only', async () => {
   return 'music back, stopped ambient stays stopped';
 });
 
+// Relies on prior checks having produced both music and ambient sound_select events across sc1+sc2.
 await check('Signals carry layer field', async () => {
   const events = await page.evaluate(() => {
     const a = JSON.parse(localStorage.getItem('calm-station-sc1-signals')) || [];
