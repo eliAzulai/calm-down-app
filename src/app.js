@@ -2544,6 +2544,7 @@ function stopSoundOnExit() {
   audio.musicBufferId = null;
   audio.playing = false;
   audio.currentId = null;
+  audio.resume = null;
   soundPanelOpen = false;
   $soundPanel.classList.remove('open');
   $btnSound.classList.remove('active');

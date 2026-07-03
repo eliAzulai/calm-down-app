@@ -17,10 +17,15 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 768, height: 1024 } });
 page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
-// Seed one profile so we can enter the canvas directly.
+// Seed two profiles so we can enter the canvas directly and test
+// cross-profile state isolation. Earlier checks click the FIRST
+// .profile-card.filled, which remains sc1.
 await page.addInitScript(() => {
   localStorage.setItem('calm-station-profiles',
-    JSON.stringify([{ id: 'sc1', name: 'ScapeKid', icon: 'flame', theme: 'ocean' }]));
+    JSON.stringify([
+      { id: 'sc1', name: 'ScapeKid', icon: 'flame', theme: 'ocean' },
+      { id: 'sc2', name: 'OtherKid', icon: 'flame', theme: 'forest' },
+    ]));
 });
 
 // Instrument music-length buffer sources (music tracks are 200s+; ambient
@@ -144,6 +149,21 @@ await check('Play resumes both layers', async () => {
   await page.click('#btn-play-pause');
   await page.waitForFunction(() => audio.musicPlaying === true && audio.playing === true, null, { timeout: 10000 });
   return 'both resumed';
+});
+
+await check('Pause snapshot does not leak across profiles', async () => {
+  // Leave profile A with layers paused-then-resumed state behind
+  await page.click('#btn-back');
+  await page.waitForSelector('#screen-profiles.active');
+  await page.locator('.profile-card.filled').nth(1).click();
+  await page.waitForSelector('#screen-canvas.active');
+  await page.click('#btn-sound');
+  await page.waitForSelector('#sound-panel.open');
+  await page.click('#btn-play-pause');
+  await page.waitForFunction(() => audio.playing === true, null, { timeout: 5000 });
+  const state = await page.evaluate(() => ({ musicPlaying: audio.musicPlaying, currentId: audio.currentId }));
+  if (state.musicPlaying !== false || state.currentId !== 'rain') throw new Error(JSON.stringify(state));
+  return 'fresh profile gets legacy default only';
 });
 
 await check('No console errors', async () => {
