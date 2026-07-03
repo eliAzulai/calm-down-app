@@ -147,5 +147,5 @@ Design spec: `docs/superpowers/specs/2026-05-04-preference-signals-control-loop-
 - [ ] Shake device to scatter particles
 - [ ] Points / unlockables system
 - [ ] Streak tracking
-- [ ] Lo-fi beats (embedded audio or procedural)
+- [x] ~~Lo-fi beats (embedded audio or procedural)~~ → shipped as Soundscape 2.0 music layer (see docs/superpowers/specs/2026-07-03-soundscape-2.0-design.md)
 - [ ] Separate TSG app for 4 skills & roles

@@ -42,7 +42,7 @@ Central `state` object + `setState(updates)` that calls `render()`. No virtual D
 Full-viewport `<canvas>` with `requestAnimationFrame` loop. 5 visual modes cycled by double-tap: finger trails, particles, ripples, geometric patterns, freeform drawing. Multi-touch via Pointer Events API.
 
 ### Audio
-Web Audio API with procedural generation (no audio files). Sounds: rain, drone, ocean, white noise, pink noise. AudioContext created on first user gesture (iOS requirement). 500ms crossfade between sounds.
+Web Audio API, three layer buses (music/ambient/sfx) into a master gain. Music: 3 precached MP3 tracks (src/audio/music/) as seamless AudioBuffer loops, one decoded at a time. Ambient: 4 procedural generators tuned to A=432. SFX + entrainment are per-profile dev-gated experiments (?dev=true). AudioContext created on first user gesture (iOS requirement). 500ms crossfades; ambient auto-ducks under music.
 
 ### Exercise Flow
 Gentle orb appears after 3-5 min of canvas use → tap reveals breathe/ground choice → energy check-in → exercise → energy check-out with before/after comparison. Everything dismissable.
