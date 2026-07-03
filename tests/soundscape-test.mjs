@@ -132,6 +132,20 @@ await check('Duck releases when music stops', async () => {
   return 'ambientBus back to 1.0';
 });
 
+await check('Pause stops both layers', async () => {
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForFunction(() => audio.musicPlaying === true && audio.playing === true, null, { timeout: 10000 });
+  await page.click('#btn-play-pause');
+  await page.waitForFunction(() => audio.musicPlaying === false && audio.playing === false, null, { timeout: 5000 });
+  return 'both stopped';
+});
+
+await check('Play resumes both layers', async () => {
+  await page.click('#btn-play-pause');
+  await page.waitForFunction(() => audio.musicPlaying === true && audio.playing === true, null, { timeout: 10000 });
+  return 'both resumed';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';

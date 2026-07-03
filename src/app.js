@@ -2338,13 +2338,23 @@ function updateDucking() {
 
 function togglePlayPause() {
   ensureAudioContext();
-  if (audio.playing) {
-    stopSound();
-  } else if (audio.currentId) {
-    playSound(audio.currentId);
+  var anyPlaying = audio.playing || audio.musicPlaying;
+  if (anyPlaying) {
+    audio.resume = {
+      soundId: audio.playing ? audio.currentId : null,
+      musicId: audio.musicPlaying ? audio.musicId : null,
+    };
+    if (audio.musicPlaying) stopMusic();
+    if (audio.playing) stopSound();
   } else {
-    // Default to rain if nothing selected
-    playSound('rain');
+    var r = audio.resume || {};
+    if (r.musicId) playMusic(r.musicId);
+    if (r.soundId) {
+      playSound(r.soundId);
+    } else if (!r.musicId) {
+      // Nothing remembered: default to rain (existing behavior)
+      playSound(audio.currentId || 'rain');
+    }
   }
 }
 
@@ -2537,6 +2547,7 @@ function stopSoundOnExit() {
   soundPanelOpen = false;
   $soundPanel.classList.remove('open');
   $btnSound.classList.remove('active');
+  updateDucking();
 }
 
 // --- Ambient Background ---
