@@ -2631,6 +2631,9 @@ function loadSfxBuffer(item) {
 function playSfxAccent() {
   if (!sfx.active || !audio.ctx || !audio.sfxBus) return;
   var pick = SFX_SOUNDS[Math.floor(Math.random() * SFX_SOUNDS.length)];
+  // Accepted edge: a decode in flight across an exit+re-enter (sub-310 ms,
+  // first-ever accent only) can land under the next profile's log. Harmless
+  // (soft accent, dev-only telemetry); a generation guard wasn't worth it.
   loadSfxBuffer(pick).then(function(buffer) {
     if (!sfx.active || !buffer) return;
     var src = audio.ctx.createBufferSource();

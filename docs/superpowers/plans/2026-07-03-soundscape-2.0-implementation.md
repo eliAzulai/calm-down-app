@@ -1699,4 +1699,12 @@ Not automatable — do with the user.
 
 - **Spec coverage:** music group (T1,2,4), precache-all (T1,14), layered buses (T3), duck (T5), per-sound treatments (T8–11), 432 foundation (T8,9), entrainment dev-gated (T12), SFX dev-gated + brief (T13,16), prefs compat (T4), layer signals + dashboard (T7), kid-UX unchanged beyond Music row (T2), error handling (T4 markTrackUnavailable, T13 silent catch), testing (each task + T15), manual pass (T16). Spec's "soundId→ambientId migration" simplified to keeping legacy key names — same outcome, zero migration risk (noted in T4).
 - **Known judgment calls:** Forest Rain uses the longer "(1)" take; MP3 over AAC for Chromium decode; `whitenoise` id/name kept for test compat.
+
+## Probe conventions (added post-T9 review)
+
+- Audio probes tap `audio.masterGain` and STATE the tap point.
+- Sample ≥ 1 full period of the slowest modulation in play (breath 0.1 Hz → ≥ 10 s, waves 8–16 s → ≥ 35 s).
+- FFT claims print the actual Hz-per-bin.
+- Single 40 s RMS draws on wave-like envelopes carry ±1–2 dB noise — pool ≥ 3 windows before claiming sub-dB differences.
+- `AudioParam.value` reads do NOT reflect a-rate inputs (LFO→param connections) — measure rendered output instead.
 - **Type consistency check:** `playMusic(trackId, options)` / `stopMusic()` / `updateDucking()` / `applyEntrainment(rateKey)` / `startSfxScheduler(profileId)` / `playSfxAccent()` — names match across tasks 4–13.

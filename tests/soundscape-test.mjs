@@ -280,6 +280,18 @@ await check('SW precaches audio assets', async () => {
   return 'v2 + 4 audio assets';
 });
 
+await check('SW cache actually contains audio (real Cache Storage)', async () => {
+  await page.goto(BASE);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  const cached = await page.waitForFunction(async () => {
+    const hit = await caches.match('./audio/music/bowls.mp3');
+    return hit ? hit.status : null;
+  }, null, { timeout: 15000 });
+  const status = await cached.jsonValue();
+  if (status !== 200) throw new Error(`cache miss/status ${status}`);
+  return 'bowls.mp3 in Cache Storage';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';
