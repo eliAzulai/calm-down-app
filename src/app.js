@@ -672,6 +672,7 @@ function enterProfile(profile) {
   // Must run before any sound can start: clears the previous profile's rate
   // so a residual oscillator can't leak into this profile's first sound.
   applyEntrainment(getProfileDevControl(profile.id).entrainmentRate);
+  startSfxScheduler(profile.id);
   startGentlePromptTimer();
 }
 
@@ -1100,6 +1101,7 @@ var lastTapX = 0;
 var lastTapY = 0;
 
 $mainCanvas.addEventListener('pointerdown', function(e) {
+  if (sfx.active && !audio.ctx) ensureAudioContext();
   e.preventDefault();
   $mainCanvas.setPointerCapture(e.pointerId);
   var x = e.clientX;
@@ -2602,6 +2604,72 @@ function applyEntrainment(rateKey) {
   entrainment.rate = normalized;
 }
 
+// --- SFX accent layer (dev-gated experiment) ---
+// Sparse, soft, never surprising. Default OFF for every profile;
+// enabled per profile via ?dev=true controls only.
+
+var SFX_SOUNDS = [
+  { id: 'chime', file: 'audio/sfx/chime.mp3' },
+  // Extend as ElevenLabs assets land (water drop, soft bird, bowl swell).
+];
+var sfx = { timer: null, buffers: {}, active: false };
+
+function loadSfxBuffer(item) {
+  if (sfx.buffers[item.id]) return Promise.resolve(sfx.buffers[item.id]);
+  return fetch(item.file)
+    .then(function(res) {
+      if (!res.ok) throw new Error('sfx fetch failed');
+      return res.arrayBuffer();
+    })
+    .then(function(data) { return audio.ctx.decodeAudioData(data); })
+    .then(function(buffer) {
+      sfx.buffers[item.id] = buffer;
+      return buffer;
+    });
+}
+
+function playSfxAccent() {
+  if (!sfx.active || !audio.ctx || !audio.sfxBus) return;
+  var pick = SFX_SOUNDS[Math.floor(Math.random() * SFX_SOUNDS.length)];
+  loadSfxBuffer(pick).then(function(buffer) {
+    if (!sfx.active || !buffer) return;
+    var src = audio.ctx.createBufferSource();
+    src.buffer = buffer;
+    var g = audio.ctx.createGain();
+    g.gain.value = 0.1 + Math.random() * 0.05; // conservative, slightly varied
+    src.connect(g);
+    g.connect(audio.sfxBus);
+    src.start();
+    recordSignal('sfx_played', { sfxId: pick.id });
+  }).catch(function() {
+    // Missing/undecodable asset: silent no-op.
+  });
+}
+
+function startSfxScheduler(profileId) {
+  stopSfxScheduler();
+  var control = getProfileDevControl(profileId);
+  if (!control.sfxEnabled) return;
+  sfx.active = true;
+  function scheduleNext() {
+    sfx.timer = setTimeout(function() {
+      playSfxAccent();
+      scheduleNext();
+    }, 45000 + Math.random() * 75000); // every ~45–120 s
+  }
+  // Never within the first 60 s of a session.
+  sfx.timer = setTimeout(function() {
+    playSfxAccent();
+    scheduleNext();
+  }, 60000 + Math.random() * 30000);
+}
+
+function stopSfxScheduler() {
+  sfx.active = false;
+  clearTimeout(sfx.timer);
+  sfx.timer = null;
+}
+
 function togglePlayPause() {
   ensureAudioContext();
   var anyPlaying = audio.playing || audio.musicPlaying;
@@ -2796,6 +2864,7 @@ function loadSoundPrefs() {
 }
 
 function stopSoundOnExit() {
+  stopSfxScheduler();
   if (audio.currentNodes) {
     try { audio.currentNodes.stop(); } catch(e) {}
     audio.currentNodes = null;
@@ -3187,6 +3256,9 @@ function renderDevControls() {
       '</label>' +
       '<label>Entrainment (experiment)' +
         '<select data-dev-control="entrainmentRate">' + entrainOptions + '</select>' +
+      '</label>' +
+      '<label>SFX accents (experiment)' +
+        '<input data-dev-control="sfxEnabled" type="checkbox"' + (control.sfxEnabled ? ' checked' : '') + '>' +
       '</label>';
     $devControls.appendChild(card);
   });
@@ -3256,6 +3328,7 @@ function saveControlsFromUI() {
     var promptEnabled = card.querySelector('[data-dev-control="promptEnabled"]').value;
     var experimentLabel = card.querySelector('[data-dev-control="experimentLabel"]').value.trim();
     var entrainmentRate = card.querySelector('[data-dev-control="entrainmentRate"]').value;
+    var sfxEnabled = card.querySelector('[data-dev-control="sfxEnabled"]').checked;
     var profileControl = {};
     var delaySeconds = Number(delayInput);
 
@@ -3266,6 +3339,7 @@ function saveControlsFromUI() {
     profileControl.promptEnabled = promptEnabled !== 'false';
     if (experimentLabel) profileControl.experimentLabel = experimentLabel;
     if (ENTRAINMENT_RATES[entrainmentRate]) profileControl.entrainmentRate = entrainmentRate;
+    if (sfxEnabled) profileControl.sfxEnabled = true;
     controls[profileId] = profileControl;
   });
   saveDevControls(controls);

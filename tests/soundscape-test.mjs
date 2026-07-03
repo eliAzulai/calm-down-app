@@ -242,6 +242,34 @@ await check('Kid canvas shows no experiment copy', async () => {
   return 'clean';
 });
 
+await check('SFX scheduler off by default', async () => {
+  const active = await page.evaluate(() => sfx.active);
+  if (active) throw new Error('sfx active without dev control');
+  return 'inactive';
+});
+
+await check('SFX accent plays + records when enabled', async () => {
+  await page.evaluate(() => {
+    var controls = getDevControls();
+    controls['sc2'] = Object.assign({}, controls['sc2'], { sfxEnabled: true });
+    saveDevControls(controls);
+    startSfxScheduler('sc2');
+    playSfxAccent();
+  });
+  await page.waitForFunction(() => {
+    const events = JSON.parse(localStorage.getItem('calm-station-sc2-signals')) || [];
+    return events.some(e => e.type === 'sfx_played');
+  }, null, { timeout: 10000 });
+  return 'sfx_played recorded';
+});
+
+await check('Dev screen has entrainment + SFX controls', async () => {
+  await page.goto(`${BASE}/?dev=true`);
+  await page.waitForSelector('[data-dev-control="entrainmentRate"]');
+  await page.waitForSelector('[data-dev-control="sfxEnabled"]');
+  return 'controls present';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';
