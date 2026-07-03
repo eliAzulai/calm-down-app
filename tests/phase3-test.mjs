@@ -68,11 +68,11 @@ function log(check, pass, detail) {
   log('Sound panel opens on click', panelOpen);
 
   // CHECK 4: Sound options rendered
-  const soundOpts = await page.$$('.sound-option');
+  const soundOpts = await page.$$('#sound-options .sound-option');
   log('Four sound options', soundOpts.length === 4, `found ${soundOpts.length}`);
 
   const optTexts = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll('.sound-option')).map(b => b.textContent.trim());
+    return Array.from(document.querySelectorAll('#sound-options .sound-option')).map(b => b.textContent.trim());
   });
   log(
     'Options include all procedural sounds',

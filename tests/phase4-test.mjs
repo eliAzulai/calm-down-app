@@ -154,11 +154,11 @@ function log(check, pass, detail) {
   await page.click('#btn-sound');
   await page.waitForTimeout(300);
 
-  const soundOpts = await page.$$('.sound-option');
+  const soundOpts = await page.$$('#sound-options .sound-option');
   log('4 sound options', soundOpts.length === 4, `found ${soundOpts.length}`);
 
   const soundNames = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('.sound-option')).map(b => b.textContent.trim())
+    Array.from(document.querySelectorAll('#sound-options .sound-option')).map(b => b.textContent.trim())
   );
   log('Sounds include Ocean Waves', soundNames.includes('Ocean Waves'), soundNames.join(', '));
   log('Sounds include White Noise', soundNames.includes('White Noise'), soundNames.join(', '));
