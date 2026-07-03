@@ -1991,6 +1991,9 @@ function createRain(ctx, dest) {
   lfo2Gain.connect(patterGain.gain);
 
   // Sparse droplet grains — 432-family pentatonic, barely audible
+  // NOTE: same wall-clock-timer-during-suspend invariant as the ocean wave
+  // engine — repeated firings while hidden are harmless (osc lifetimes are
+  // self-contained and the ctx renders nothing while suspended).
   var dropletTimer = null;
   function scheduleDroplet() {
     dropletTimer = setTimeout(function() {
@@ -2191,7 +2194,7 @@ function createOcean(ctx, dest) {
   deepLp.type = 'lowpass';
   deepLp.frequency.value = 300;
   var deepGain = ctx.createGain();
-  deepGain.gain.value = 0.08;
+  deepGain.gain.value = 0.14;
   deep.connect(deepLp);
   deepLp.connect(deepGain);
   deepGain.connect(mix);
@@ -2210,6 +2213,9 @@ function createOcean(ctx, dest) {
   }
 
   // Wave engine: every wave gets its own randomized envelope — no audible loop.
+  // NOTE: setTimeout keeps firing on wall-clock while the ctx is suspended
+  // (tab hidden); repeated firings all land on the frozen currentTime and
+  // cancelScheduledValues makes them safe — only the last envelope survives.
   var waveTimer = null;
   function scheduleWave() {
     var period = 8 + Math.random() * 8;               // 8–16 s
@@ -2217,9 +2223,9 @@ function createOcean(ctx, dest) {
     var rise = period * (0.35 + Math.random() * 0.15);
     var t = ctx.currentTime;
     waveGain.gain.cancelScheduledValues(t);
-    waveGain.gain.setValueAtTime(Math.max(0.02, waveGain.gain.value), t);
+    waveGain.gain.setValueAtTime(Math.max(0.04, waveGain.gain.value), t);
     waveGain.gain.linearRampToValueAtTime(peak, t + rise);
-    waveGain.gain.linearRampToValueAtTime(0.04, t + period);
+    waveGain.gain.linearRampToValueAtTime(0.06, t + period);
     foamGain.gain.cancelScheduledValues(t);
     foamGain.gain.setValueAtTime(0.0001, t);
     foamGain.gain.setValueAtTime(0.0001, t + rise * 0.9);
