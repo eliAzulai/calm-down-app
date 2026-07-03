@@ -1922,6 +1922,30 @@ function getNoiseBuffer() {
   return buf;
 }
 
+var _pinkBuffer = null;
+function getPinkNoiseBuffer() {
+  // Paul Kellet pink-noise approximation, precomputed into a loop buffer.
+  if (_pinkBuffer) return _pinkBuffer;
+  var ctx = audio.ctx;
+  var len = ctx.sampleRate * 4;
+  var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  var data = buf.getChannelData(0);
+  var b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (var i = 0; i < len; i++) {
+    var white = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + white * 0.0555179;
+    b1 = 0.99332 * b1 + white * 0.0750759;
+    b2 = 0.96900 * b2 + white * 0.1538520;
+    b3 = 0.86650 * b3 + white * 0.3104856;
+    b4 = 0.55000 * b4 + white * 0.5329522;
+    b5 = -0.7616 * b5 - white * 0.0168980;
+    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+    b6 = white * 0.115926;
+  }
+  _pinkBuffer = buf;
+  return buf;
+}
+
 // --- Rain Generator ---
 
 function createRain(ctx, dest) {
@@ -2260,29 +2284,47 @@ function createOcean(ctx, dest) {
 // --- White Noise Generator ---
 
 function createWhiteNoise(ctx, dest) {
-  var buf = getNoiseBuffer();
-
   var noise = ctx.createBufferSource();
-  noise.buffer = buf;
+  noise.buffer = getPinkNoiseBuffer();
   noise.loop = true;
 
-  // Soften slightly with lowpass
-  var lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 8000;
+  // Soften remaining top end further
+  var shelf = ctx.createBiquadFilter();
+  shelf.type = 'highshelf';
+  shelf.frequency.value = 3000;
+  shelf.gain.value = -6;
 
-  var gain = ctx.createGain();
-  gain.gain.value = 0.18;
+  // Internal level driver. NOT the crossfade handle: playSound schedules
+  // setValueAtTime(0) + ramp-to-1 on the returned gain at select, which
+  // would wipe any preset value planted there (see ocean commit 2f37861).
+  var level = ctx.createGain();
+  level.gain.value = 0.25;
 
-  noise.connect(lp);
-  lp.connect(gain);
+  var gain = ctx.createGain(); // crossfade handle (playSound ramps this 0->1)
+  gain.gain.value = 1;
+
+  // Barely perceptible undulation so it doesn't feel frozen. Targets the
+  // level node, not the crossfade handle, to avoid two writers on one AudioParam.
+  var lfo = ctx.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.value = 0.05;
+  var lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.02;
+  lfo.connect(lfoGain);
+  lfoGain.connect(level.gain);
+
+  noise.connect(shelf);
+  shelf.connect(level);
+  level.connect(gain);
   gain.connect(dest);
   noise.start();
+  lfo.start();
 
   return {
     gain: gain,
     stop: function() {
-      try { noise.stop(); } catch(e) {}
+      try { noise.stop(); } catch (e) {}
+      try { lfo.stop(); } catch (e) {}
     },
   };
 }
