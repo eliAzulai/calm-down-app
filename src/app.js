@@ -1843,7 +1843,7 @@ var audio = {
   musicBuffer: null,   // single decoded track held at a time
   musicBufferId: null,
   musicGen: 0,         // decode-lifecycle generation counter
-  resume: null,        // remembered layers for play/pause
+  pauseSnapshot: null, // remembered layers for play/pause
   volume: 0.5,
 };
 
@@ -2151,6 +2151,7 @@ function playSound(soundId, options) {
 
   // If selecting same sound while playing, just stop (toggle off)
   if (soundId === audio.currentId && audio.playing) {
+    if (audio.pauseSnapshot) audio.pauseSnapshot.soundId = null;
     audio.currentId = null;
     audio.currentNodes = null;
     audio.playing = false;
@@ -2256,6 +2257,7 @@ function playMusic(trackId, options) {
 
   // Re-tap active track = toggle off
   if (trackId === audio.musicId && audio.musicPlaying) {
+    if (audio.pauseSnapshot) audio.pauseSnapshot.musicId = null;
     stopMusic();
     return;
   }
@@ -2340,14 +2342,15 @@ function togglePlayPause() {
   ensureAudioContext();
   var anyPlaying = audio.playing || audio.musicPlaying;
   if (anyPlaying) {
-    audio.resume = {
-      soundId: audio.playing ? audio.currentId : null,
-      musicId: audio.musicPlaying ? audio.musicId : null,
+    var prior = audio.pauseSnapshot || {};
+    audio.pauseSnapshot = {
+      soundId: audio.playing ? audio.currentId : (prior.soundId || null),
+      musicId: audio.musicPlaying ? audio.musicId : (prior.musicId || null),
     };
     if (audio.musicPlaying) stopMusic();
     if (audio.playing) stopSound();
   } else {
-    var r = audio.resume || {};
+    var r = audio.pauseSnapshot || {};
     if (r.musicId) playMusic(r.musicId);
     if (r.soundId) {
       playSound(r.soundId);
@@ -2544,7 +2547,7 @@ function stopSoundOnExit() {
   audio.musicBufferId = null;
   audio.playing = false;
   audio.currentId = null;
-  audio.resume = null;
+  audio.pauseSnapshot = null;
   soundPanelOpen = false;
   $soundPanel.classList.remove('open');
   $btnSound.classList.remove('active');

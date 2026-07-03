@@ -166,6 +166,37 @@ await check('Pause snapshot does not leak across profiles', async () => {
   return 'fresh profile gets legacy default only';
 });
 
+await check('Ambient swap while paused keeps music in snapshot', async () => {
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForFunction(() => audio.musicPlaying === true && audio.musicNodes !== null, null, { timeout: 10000 });
+  await page.click('#btn-play-pause'); // pause both
+  await page.waitForFunction(() => audio.playing === false && audio.musicPlaying === false, null, { timeout: 5000 });
+  await page.click('#sound-options .sound-option[data-sound="ocean"]'); // change mind while paused
+  await page.waitForFunction(() => audio.playing === true && audio.currentId === 'ocean', null, { timeout: 5000 });
+  await page.click('#btn-play-pause'); // pause again (merge must keep bowls)
+  await page.waitForFunction(() => audio.playing === false, null, { timeout: 5000 });
+  await page.click('#btn-play-pause'); // resume
+  await page.waitForFunction(() => audio.playing === true && audio.musicPlaying === true, null, { timeout: 10000 });
+  const s = await page.evaluate(() => ({ currentId: audio.currentId, musicId: audio.musicId }));
+  if (s.currentId !== 'ocean' || s.musicId !== 'bowls') throw new Error(JSON.stringify(s));
+  return 'ocean + bowls both back';
+});
+
+await check('Toggle-off while paused clears that half only', async () => {
+  await page.click('#btn-play-pause'); // pause both (snapshot {ocean,bowls})
+  await page.waitForFunction(() => audio.playing === false && audio.musicPlaying === false, null, { timeout: 5000 });
+  await page.click('#sound-options .sound-option[data-sound="ocean"]'); // starts ocean again
+  await page.waitForFunction(() => audio.playing === true, null, { timeout: 5000 });
+  await page.click('#sound-options .sound-option[data-sound="ocean"]'); // toggle OFF = explicit stop intent
+  await page.waitForFunction(() => audio.playing === false, null, { timeout: 5000 });
+  await page.click('#btn-play-pause'); // resume: bowls must return, ambient must NOT
+  await page.waitForFunction(() => audio.musicPlaying === true, null, { timeout: 10000 });
+  await page.waitForTimeout(300);
+  const s = await page.evaluate(() => ({ playing: audio.playing, musicId: audio.musicId }));
+  if (s.playing !== false || s.musicId !== 'bowls') throw new Error(JSON.stringify(s));
+  return 'music back, stopped ambient stays stopped';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';
