@@ -1875,7 +1875,15 @@ function ensureAudioContext() {
     audio.ambientBus = audio.ctx.createGain();
     audio.ambientBus.connect(audio.entrainGain);
   } catch (e) {
-    // Web Audio not supported
+    // Web Audio not supported, or init failed partway — reset so a later
+    // call can retry cleanly instead of reusing a half-built graph.
+    if (audio.ctx) { try { audio.ctx.close(); } catch (e2) {} }
+    audio.ctx = null;
+    audio.masterGain = null;
+    audio.musicBus = null;
+    audio.ambientBus = null;
+    audio.sfxBus = null;
+    audio.entrainGain = null;
   }
 }
 
