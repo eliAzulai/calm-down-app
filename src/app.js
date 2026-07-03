@@ -669,6 +669,7 @@ function enterProfile(profile) {
   showModeIndicator();
   startSignalSession();
   loadSoundPrefs();
+  applyEntrainment(getProfileDevControl(profile.id).entrainmentRate);
   startGentlePromptTimer();
 }
 
@@ -1895,6 +1896,12 @@ function ensureAudioContext() {
     audio.entrainGain.connect(audio.masterGain);
     audio.ambientBus = audio.ctx.createGain();
     audio.ambientBus.connect(audio.entrainGain);
+
+    if (entrainment.rate) {
+      var pending = entrainment.rate;
+      entrainment.rate = null;
+      applyEntrainment(pending);
+    }
   } catch (e) {
     // Web Audio not supported, or init failed partway — reset so a later
     // call can retry cleanly instead of reusing a half-built graph.
@@ -2550,6 +2557,47 @@ function updateDucking() {
   audio.ambientBus.gain.setTargetAtTime(target, audio.ctx.currentTime, 0.7); // ~2s settle
 }
 
+// --- Entrainment modulator (dev-gated experiment) ---
+// Monaural amplitude modulation on the ambient bus. Evidence for these
+// rates is mixed/emerging — they are observable experiment variables,
+// never kid-visible controls, never defaults.
+
+var ENTRAINMENT_RATES = { theta: 6, alpha: 10, gamma40: 40 };
+var entrainment = { osc: null, depthGain: null, rate: null };
+
+function applyEntrainment(rateKey) {
+  var normalized = ENTRAINMENT_RATES[rateKey] ? rateKey : null;
+  if (!audio.ctx || !audio.entrainGain) {
+    entrainment.rate = normalized;
+    return;
+  }
+  if (normalized === entrainment.rate && entrainment.osc) return;
+  if (entrainment.osc) {
+    try { entrainment.osc.stop(); } catch (e) {}
+    entrainment.osc = null;
+    entrainment.depthGain = null;
+  }
+  var t = audio.ctx.currentTime;
+  if (!normalized) {
+    audio.entrainGain.gain.setTargetAtTime(1, t, 0.2);
+    entrainment.rate = null;
+    return;
+  }
+  var depth = 0.15;
+  audio.entrainGain.gain.setTargetAtTime(1 - depth, t, 0.2);
+  var osc = audio.ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = ENTRAINMENT_RATES[normalized];
+  var dg = audio.ctx.createGain();
+  dg.gain.value = depth;
+  osc.connect(dg);
+  dg.connect(audio.entrainGain.gain);
+  osc.start();
+  entrainment.osc = osc;
+  entrainment.depthGain = dg;
+  entrainment.rate = normalized;
+}
+
 function togglePlayPause() {
   ensureAudioContext();
   var anyPlaying = audio.playing || audio.musicPlaying;
@@ -3104,6 +3152,15 @@ function renderDevControls() {
         escapeHTML(MODE_LABELS[mode] || mode) +
       '</option>';
     }).join('');
+    var entrainRates = ['', 'theta', 'alpha', 'gamma40'];
+    var entrainOptions = entrainRates.map(function(rate) {
+      var selected = (control.entrainmentRate || '') === rate ? ' selected' : '';
+      var label = rate === '' ? 'Off'
+        : rate === 'theta' ? 'Theta ~6 Hz'
+        : rate === 'alpha' ? 'Alpha ~10 Hz'
+        : 'Gamma 40 Hz';
+      return '<option value="' + rate + '"' + selected + '>' + label + '</option>';
+    }).join('');
 
     var card = document.createElement('div');
     card.className = 'dev-control-card';
@@ -3123,6 +3180,9 @@ function renderDevControls() {
       '</label>' +
       '<label>Experiment Label' +
         '<input data-dev-control="experimentLabel" type="text" maxlength="80" value="' + escapeHTML(experimentLabel) + '">' +
+      '</label>' +
+      '<label>Entrainment (experiment)' +
+        '<select data-dev-control="entrainmentRate">' + entrainOptions + '</select>' +
       '</label>';
     $devControls.appendChild(card);
   });
@@ -3191,6 +3251,7 @@ function saveControlsFromUI() {
     var delayInput = card.querySelector('[data-dev-control="promptDelaySeconds"]').value;
     var promptEnabled = card.querySelector('[data-dev-control="promptEnabled"]').value;
     var experimentLabel = card.querySelector('[data-dev-control="experimentLabel"]').value.trim();
+    var entrainmentRate = card.querySelector('[data-dev-control="entrainmentRate"]').value;
     var profileControl = {};
     var delaySeconds = Number(delayInput);
 
@@ -3200,6 +3261,7 @@ function saveControlsFromUI() {
     }
     profileControl.promptEnabled = promptEnabled !== 'false';
     if (experimentLabel) profileControl.experimentLabel = experimentLabel;
+    if (ENTRAINMENT_RATES[entrainmentRate]) profileControl.entrainmentRate = entrainmentRate;
     controls[profileId] = profileControl;
   });
   saveDevControls(controls);

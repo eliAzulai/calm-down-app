@@ -218,6 +218,30 @@ await check('Signal context includes music state', async () => {
   return 'context has musicId/musicPlaying';
 });
 
+await check('Entrainment off by default', async () => {
+  const rate = await page.evaluate(() => entrainment.rate);
+  if (rate !== null) throw new Error(`rate=${rate}`);
+  return 'off';
+});
+
+await check('Entrainment applies and clears', async () => {
+  const applied = await page.evaluate(() => {
+    applyEntrainment('theta');
+    const on = entrainment.rate === 'theta' && entrainment.osc !== null;
+    applyEntrainment('');
+    const off = entrainment.rate === null && entrainment.osc === null;
+    return on && off;
+  });
+  if (!applied) throw new Error('apply/clear failed');
+  return 'theta on/off';
+});
+
+await check('Kid canvas shows no experiment copy', async () => {
+  const text = await page.evaluate(() => document.getElementById('screen-canvas').textContent);
+  if (/entrainment|experiment|sfx/i.test(text)) throw new Error('leaked dev copy');
+  return 'clean';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';
