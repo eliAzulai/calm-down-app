@@ -21,7 +21,10 @@ function log(check, pass, detail) {
   const page = await context.newPage();
 
   const consoleErrors = [];
-  page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  page.on('console', msg => {
+    // cert errors come from the sandboxed-CI TLS proxy, not the app
+    if (msg.type() === 'error' && !msg.text().includes('ERR_CERT_AUTHORITY_INVALID')) consoleErrors.push(msg.text());
+  });
   page.on('pageerror', err => consoleErrors.push(err.message));
 
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -133,14 +136,23 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase2-ripples.png' });
 
-  // CHECK 7: Double-tap wraps back to trails
+  // CHECK 7: Double-tap continues through Geometric + Drawing (phase 4 modes),
+  // then wraps back to trails
   await page.mouse.click(400, 500);
   await page.waitForTimeout(100);
   await page.mouse.click(400, 500);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(400); // → Geometric
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(100);
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(400); // → Drawing
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(100);
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(400); // → wraps to Finger Trails
 
   const modeWrapped = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Mode wraps back to Finger Trails', modeWrapped === 'Finger Trails', modeWrapped);
+  log('Mode wraps back to Finger Trails after 5 modes', modeWrapped === 'Finger Trails', modeWrapped);
 
   // CHECK 8: Clear button exists and works
   const clearBtn = await page.$('#btn-clear');

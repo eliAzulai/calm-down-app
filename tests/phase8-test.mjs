@@ -20,7 +20,10 @@ function log(check, pass, detail) {
   const page = await context.newPage();
 
   const consoleErrors = [];
-  page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  page.on('console', msg => {
+    // cert errors come from the sandboxed-CI TLS proxy, not the app
+    if (msg.type() === 'error' && !msg.text().includes('ERR_CERT_AUTHORITY_INVALID')) consoleErrors.push(msg.text());
+  });
   page.on('pageerror', err => consoleErrors.push(err.message));
 
   // === PWA MANIFEST ===
@@ -43,6 +46,13 @@ function log(check, pass, detail) {
   log('Manifest has icons', manifest.icons && manifest.icons.length >= 2, `${manifest.icons?.length} icons`);
   log('Manifest has 192 icon', manifest.icons?.some(i => i.sizes === '192x192'), 'has 192');
   log('Manifest has 512 icon', manifest.icons?.some(i => i.sizes === '512x512'), 'has 512');
+  // Android Chrome installability: requires a raster (PNG) icon — SVG is not accepted
+  log('192 icon is PNG (Android installable)', manifest.icons?.some(i => i.sizes === '192x192' && i.type === 'image/png'),
+    manifest.icons?.find(i => i.sizes === '192x192')?.type);
+  log('512 icon is PNG (Android installable)', manifest.icons?.some(i => i.sizes === '512x512' && i.type === 'image/png'),
+    manifest.icons?.find(i => i.sizes === '512x512')?.type);
+  log('Has maskable icon (Android adaptive)', manifest.icons?.some(i => (i.purpose || '').includes('maskable')),
+    manifest.icons?.find(i => (i.purpose || '').includes('maskable'))?.src);
 
   // Go back to main page for remaining tests
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -138,11 +148,14 @@ function log(check, pass, detail) {
 
   // === ICON FILES ===
 
-  const icon192Resp = await page.goto(BASE + '/icon-192.svg');
-  log('192 icon file loads', icon192Resp.status() === 200);
+  const icon192Resp = await page.goto(BASE + '/icon-192.png');
+  log('192 PNG icon file loads', icon192Resp.status() === 200 && (icon192Resp.headers()['content-type'] || '').includes('image/png'));
 
-  const icon512Resp = await page.goto(BASE + '/icon-512.svg');
-  log('512 icon file loads', icon512Resp.status() === 200);
+  const icon512Resp = await page.goto(BASE + '/icon-512.png');
+  log('512 PNG icon file loads', icon512Resp.status() === 200 && (icon512Resp.headers()['content-type'] || '').includes('image/png'));
+
+  const iconMaskResp = await page.goto(BASE + '/icon-maskable-512.png');
+  log('Maskable PNG icon file loads', iconMaskResp.status() === 200 && (iconMaskResp.headers()['content-type'] || '').includes('image/png'));
 
   // Go back for remaining tests
   await page.goto(BASE, { waitUntil: 'networkidle' });

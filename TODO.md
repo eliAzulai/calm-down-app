@@ -125,7 +125,7 @@ The PRD.md is the source of truth for requirements and design decisions.
 
 ## Backlog (Future)
 - [ ] Touch-responsive audio (touch affects pitch/tone) — needs testing with kids
-- [ ] Screenshot / save canvas art
+- [x] Screenshot / save canvas art
 - [ ] Shake device to scatter particles
 - [ ] Points / unlockables system
 - [ ] Streak tracking

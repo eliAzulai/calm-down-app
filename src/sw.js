@@ -1,10 +1,13 @@
-var CACHE_NAME = 'calm-station-v1';
+var CACHE_NAME = 'calm-station-v3';
 var ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable-512.png',
   './icon-192.svg',
   './icon-512.svg',
 ];

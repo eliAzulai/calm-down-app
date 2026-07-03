@@ -25,7 +25,8 @@ function log(check, pass, detail) {
   // Collect console errors
   const consoleErrors = [];
   page.on('console', msg => {
-    if (msg.type() === 'error') consoleErrors.push(msg.text());
+    // cert errors come from the sandboxed-CI TLS proxy, not the app
+    if (msg.type() === 'error' && !msg.text().includes('ERR_CERT_AUTHORITY_INVALID')) consoleErrors.push(msg.text());
   });
   page.on('pageerror', err => consoleErrors.push(err.message));
 
@@ -98,7 +99,7 @@ function log(check, pass, detail) {
 
   // Theme picker works
   const themeOptions = await page.$$('.theme-option');
-  log('5. Theme picker has 3 options', themeOptions.length === 3, `found ${themeOptions.length}`);
+  log('5. Theme picker has at least 3 options', themeOptions.length >= 3, `found ${themeOptions.length}`);
 
   const sunsetOpt = await page.$('[data-theme="sunset"]');
   await sunsetOpt.click();
@@ -195,8 +196,11 @@ function log(check, pass, detail) {
   const profilesHidden = await page.evaluate(() => !document.getElementById('screen-profiles')?.classList.contains('active'));
   log('10. Profile screen is hidden', profilesHidden);
 
-  const placeholderText = await page.$eval('.placeholder-text', el => el.textContent);
-  log('10. Canvas placeholder text shows', placeholderText === 'Canvas coming soon', placeholderText);
+  const mainCanvasReady = await page.evaluate(() => {
+    const c = document.getElementById('main-canvas');
+    return !!c && c.width > 0 && c.height > 0;
+  });
+  log('10. Main canvas is present and sized', mainCanvasReady);
 
   // Check theme applied to canvas screen
   const canvasHasTheme = await page.evaluate(() => {
