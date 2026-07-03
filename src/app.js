@@ -669,6 +669,8 @@ function enterProfile(profile) {
   showModeIndicator();
   startSignalSession();
   loadSoundPrefs();
+  // Must run before any sound can start: clears the previous profile's rate
+  // so a residual oscillator can't leak into this profile's first sound.
   applyEntrainment(getProfileDevControl(profile.id).entrainmentRate);
   startGentlePromptTimer();
 }
@@ -2561,6 +2563,8 @@ function updateDucking() {
 // Monaural amplitude modulation on the ambient bus. Evidence for these
 // rates is mixed/emerging — they are observable experiment variables,
 // never kid-visible controls, never defaults.
+// Depth 0.15: ~7.5x the drone's background theta tremor (0.02) — deep enough
+// to be measurable as a stimulus, shallow enough to stay comfortable at 40 Hz.
 
 var ENTRAINMENT_RATES = { theta: 6, alpha: 10, gamma40: 40 };
 var entrainment = { osc: null, depthGain: null, rate: null };
@@ -2579,12 +2583,12 @@ function applyEntrainment(rateKey) {
   }
   var t = audio.ctx.currentTime;
   if (!normalized) {
-    audio.entrainGain.gain.setTargetAtTime(1, t, 0.2);
+    audio.entrainGain.gain.setTargetAtTime(1, t, 0.5);
     entrainment.rate = null;
     return;
   }
   var depth = 0.15;
-  audio.entrainGain.gain.setTargetAtTime(1 - depth, t, 0.2);
+  audio.entrainGain.gain.setTargetAtTime(1 - depth, t, 0.5);
   var osc = audio.ctx.createOscillator();
   osc.type = 'sine';
   osc.frequency.value = ENTRAINMENT_RATES[normalized];
