@@ -1862,6 +1862,18 @@ function ensureAudioContext() {
     audio.masterGain = audio.ctx.createGain();
     audio.masterGain.gain.value = audio.volume;
     audio.masterGain.connect(audio.ctx.destination);
+
+    // Soundscape 2.0 layer buses
+    audio.musicBus = audio.ctx.createGain();
+    audio.musicBus.connect(audio.masterGain);
+    audio.sfxBus = audio.ctx.createGain();
+    audio.sfxBus.gain.value = 0.5;
+    audio.sfxBus.connect(audio.masterGain);
+    // Ambient chain: ambientBus -> entrainGain -> masterGain
+    audio.entrainGain = audio.ctx.createGain();
+    audio.entrainGain.connect(audio.masterGain);
+    audio.ambientBus = audio.ctx.createGain();
+    audio.ambientBus.connect(audio.entrainGain);
   } catch (e) {
     // Web Audio not supported
   }
@@ -2141,7 +2153,7 @@ function playSound(soundId, options) {
   var gen = generators[soundId];
   if (!gen) return;
 
-  var nodes = gen(ctx, audio.masterGain);
+  var nodes = gen(ctx, audio.ambientBus);
   nodes.gain.gain.setValueAtTime(0, ctx.currentTime);
   nodes.gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.5);
 
