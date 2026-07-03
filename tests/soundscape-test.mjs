@@ -38,6 +38,17 @@ await page.addInitScript(() => {
     if (this.buffer && this.buffer.duration > 100) window.__musicSrc.stopped++;
     return r;
   };
+  // Force decodes to overlap the rapid-click window (race determinism).
+  const origDecode = AudioContext.prototype.decodeAudioData;
+  AudioContext.prototype.decodeAudioData = function(...a) {
+    return new Promise(res => setTimeout(res, 300)).then(() => origDecode.apply(this, a));
+  };
+  if (window.webkitAudioContext && webkitAudioContext.prototype !== AudioContext.prototype) {
+    const origWkDecode = webkitAudioContext.prototype.decodeAudioData;
+    webkitAudioContext.prototype.decodeAudioData = function(...a) {
+      return new Promise(res => setTimeout(res, 300)).then(() => origWkDecode.apply(this, a));
+    };
+  }
 });
 await page.goto(BASE);
 await page.click('.profile-card.filled');
@@ -92,13 +103,16 @@ await check('Music prefs persisted', async () => {
 });
 
 await check('Rapid switch leaves exactly one live music source', async () => {
-  await page.click('#music-options .sound-option[data-music="bowls"]');
+  // forestrain is deliberately uncached here (no earlier check touches it):
+  // the double-decode race only exists on the cold path — a cached track
+  // resolves synchronously and can never overlap itself in flight.
+  await page.click('#music-options .sound-option[data-music="forestrain"]');
   await page.waitForTimeout(50);
   await page.click('#music-options .sound-option[data-music="tides"]');
   await page.waitForTimeout(50);
-  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.click('#music-options .sound-option[data-music="forestrain"]');
   await page.waitForFunction(() => audio.musicPlaying === true && audio.musicNodes !== null, null, { timeout: 10000 });
-  await page.waitForTimeout(1500); // let stray decodes settle and fade-stop timers fire
+  await page.waitForTimeout(2500); // let stray decodes settle and fade-stop timers fire
   const counts = await page.evaluate(() => window.__musicSrc);
   const live = counts.started - counts.stopped;
   if (live !== 1) throw new Error(`live music sources: ${live} (${JSON.stringify(counts)})`);
