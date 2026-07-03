@@ -1,4 +1,4 @@
-var CACHE_NAME = 'calm-station-v1';
+var CACHE_NAME = 'calm-station-v2';
 var ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,10 @@ var ASSETS = [
   './manifest.json',
   './icon-192.svg',
   './icon-512.svg',
+  './audio/music/bowls.mp3',
+  './audio/music/tides.mp3',
+  './audio/music/forest-rain.mp3',
+  './audio/sfx/chime.mp3',
 ];
 
 // Install: cache all core assets

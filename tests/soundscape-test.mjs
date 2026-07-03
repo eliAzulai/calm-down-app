@@ -270,6 +270,16 @@ await check('Dev screen has entrainment + SFX controls', async () => {
   return 'controls present';
 });
 
+await check('SW precaches audio assets', async () => {
+  const res = await page.request.get(`${BASE}/sw.js`);
+  const body = await res.text();
+  const wanted = ['audio/music/bowls.mp3', 'audio/music/tides.mp3', 'audio/music/forest-rain.mp3', 'audio/sfx/chime.mp3'];
+  const missing = wanted.filter(w => !body.includes(w));
+  if (missing.length) throw new Error('missing: ' + missing.join(','));
+  if (!body.includes('calm-station-v2')) throw new Error('cache name not bumped');
+  return 'v2 + 4 audio assets';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';
