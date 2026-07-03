@@ -25,7 +25,7 @@ Non-goals: animation changes, auto-personalization, kid-visible mixing controls,
 | --- | --- |
 | Recordings vs procedural sounds | Separate **Music** group; procedural textures stay |
 | Offline model | **Precache all** music + SFX at install for full offline |
-| File prep | Re-encode (mono AAC ~112 kbps) + seamless loop points |
+| File prep | Re-encode (mono MP3 ~112 kbps — MP3 decodes in both Safari and Playwright Chromium) + seamless loop points |
 | Mixing model | **Layered**: Music + Ambient + SFX buses, simultaneous |
 | Procedural improvements | Full treatment set (below), try then tweak from observation |
 | Frequency work | 432 tuning baked in; entrainment rates dev-gated experiments |
@@ -46,7 +46,7 @@ Three named `GainNode` buses feed the existing `masterGain`. The existing volume
 ### Music layer
 
 - Registry: `MUSIC_TRACKS = [{ id, name, file, loopStart, loopEnd, gain }]` for the 3 tracks.
-- Files live in `src/audio/music/`, re-encoded mono AAC (~112 kbps, ~2 MB each) from the source recordings.
+- Files live in `src/audio/music/`, re-encoded mono MP3 (~112 kbps, ~3–4.6 MB each) from the source recordings.
 - Playback: `fetch` → `decodeAudioData` → `AudioBufferSourceNode` with `loop = true` and per-track `loopStart`/`loopEnd` set inside the encoder padding → seamless loops with no click.
 - **Memory rule:** only one decoded music buffer held at a time (decoded PCM ≈ 10× file size on iPad). Switching tracks releases the previous buffer reference.
 - Crossfade: same 500 ms linear ramp pattern as today.
