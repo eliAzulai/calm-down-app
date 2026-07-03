@@ -48,6 +48,32 @@ await check('Section labels present', async () => {
   return labels.join(', ');
 });
 
+await check('Selecting a music track plays it', async () => {
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForFunction(() => audio.musicPlaying === true && audio.musicNodes !== null, null, { timeout: 10000 });
+  return 'bowls playing';
+});
+
+await check('Music and ambient play together', async () => {
+  await page.click('#sound-options .sound-option[data-sound="rain"]');
+  await page.waitForFunction(() => audio.playing === true && audio.musicPlaying === true, null, { timeout: 5000 });
+  return 'two live layers';
+});
+
+await check('Re-tap stops music only', async () => {
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForFunction(() => audio.musicPlaying === false && audio.playing === true, null, { timeout: 5000 });
+  return 'ambient survived';
+});
+
+await check('Music prefs persisted', async () => {
+  await page.click('#music-options .sound-option[data-music="tides"]');
+  await page.waitForFunction(() => audio.musicPlaying === true, null, { timeout: 10000 });
+  const prefs = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-sc1-prefs')));
+  if (prefs.musicId !== 'tides' || prefs.soundId !== 'rain') throw new Error(JSON.stringify(prefs));
+  return 'musicId + soundId saved';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';

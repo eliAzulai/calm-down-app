@@ -2189,6 +2189,122 @@ function stopSound() {
   saveSoundPrefs();
 }
 
+// --- Music layer (Soundscape 2.0) ---
+
+function getMusicTrack(trackId) {
+  for (var i = 0; i < MUSIC_TRACKS.length; i++) {
+    if (MUSIC_TRACKS[i].id === trackId) return MUSIC_TRACKS[i];
+  }
+  return null;
+}
+
+function loadMusicBuffer(track) {
+  if (audio.musicBufferId === track.id && audio.musicBuffer) {
+    return Promise.resolve(audio.musicBuffer);
+  }
+  return fetch(track.file)
+    .then(function(res) {
+      if (!res.ok) throw new Error('fetch failed: ' + track.file);
+      return res.arrayBuffer();
+    })
+    .then(function(data) {
+      return audio.ctx.decodeAudioData(data);
+    })
+    .then(function(buffer) {
+      // Memory rule: exactly one decoded track held at a time.
+      audio.musicBuffer = buffer;
+      audio.musicBufferId = track.id;
+      return buffer;
+    });
+}
+
+function markTrackUnavailable(trackId) {
+  var btn = $musicOptions.querySelector('[data-music="' + trackId + '"]');
+  if (btn) btn.classList.add('unavailable');
+  if (audio.musicId === trackId) {
+    audio.musicId = null;
+    audio.musicPlaying = false;
+  }
+  updateSoundUI();
+  updateDucking();
+}
+
+function playMusic(trackId, options) {
+  options = options || {};
+  ensureAudioContext();
+  if (!audio.ctx) return;
+  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+  var ctx = audio.ctx;
+
+  // Re-tap active track = toggle off
+  if (trackId === audio.musicId && audio.musicPlaying) {
+    stopMusic();
+    return;
+  }
+  var track = getMusicTrack(trackId);
+  if (!track) return;
+
+  // Fade out current music
+  if (audio.musicNodes) {
+    var old = audio.musicNodes;
+    old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+    setTimeout(function() { try { old.stop(); } catch (e) {} }, 600);
+    audio.musicNodes = null;
+  }
+
+  audio.musicId = trackId;
+  audio.musicPlaying = true;
+  if (!options.suppressSignal) {
+    recordSignal('sound_select', { soundId: trackId, layer: 'music' });
+  }
+  updateSoundUI();
+  updateDucking();
+  saveSoundPrefs();
+
+  loadMusicBuffer(track).then(function(buffer) {
+    // Selection may have changed while decoding
+    if (!buffer || audio.musicId !== trackId || !audio.musicPlaying) return;
+    var src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.loopStart = LOOP_EDGE_S;
+    src.loopEnd = Math.max(LOOP_EDGE_S, buffer.duration - LOOP_EDGE_S);
+    var gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.5);
+    src.connect(gain);
+    gain.connect(audio.musicBus);
+    src.start(0, LOOP_EDGE_S);
+    audio.musicNodes = {
+      gain: gain,
+      stop: function() { try { src.stop(); } catch (e) {} },
+    };
+  }).catch(function() {
+    markTrackUnavailable(trackId);
+  });
+}
+
+function stopMusic() {
+  var stoppedId = audio.musicId;
+  if (audio.ctx && audio.musicNodes) {
+    var ctx = audio.ctx;
+    var old = audio.musicNodes;
+    old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+    setTimeout(function() { try { old.stop(); } catch (e) {} }, 600);
+  }
+  audio.musicNodes = null;
+  audio.musicPlaying = false;
+  if (stoppedId) recordSignal('sound_stop', { soundId: stoppedId, layer: 'music' });
+  updateSoundUI();
+  updateDucking();
+  saveSoundPrefs();
+}
+
+function updateDucking() {
+  // Placeholder until Task 5 — keep ambient at unity.
+  if (!audio.ctx || !audio.ambientBus) return;
+}
+
 function togglePlayPause() {
   ensureAudioContext();
   if (audio.playing) {
@@ -2258,14 +2374,17 @@ function renderMusicOptions() {
 }
 
 function updateSoundUI() {
-  // Update option highlights
   var opts = $soundOptions.querySelectorAll('.sound-option');
   opts.forEach(function(btn) {
     btn.classList.toggle('selected', btn.dataset.sound === audio.currentId && audio.playing);
   });
+  var mopts = $musicOptions.querySelectorAll('.sound-option');
+  mopts.forEach(function(btn) {
+    btn.classList.toggle('selected', btn.dataset.music === audio.musicId && audio.musicPlaying);
+  });
 
-  // Play/pause icon
-  if (audio.playing) {
+  var anyPlaying = audio.playing || audio.musicPlaying;
+  if (anyPlaying) {
     $iconPlay.style.display = 'none';
     $iconPause.style.display = '';
     $btnPlayPause.classList.add('playing');
@@ -2307,6 +2426,13 @@ $soundOptions.addEventListener('click', function(e) {
   playSound(btn.dataset.sound);
 });
 
+// Music option click
+$musicOptions.addEventListener('click', function(e) {
+  var btn = e.target.closest('.sound-option');
+  if (!btn) return;
+  playMusic(btn.dataset.music);
+});
+
 // Play/pause
 $btnPlayPause.addEventListener('click', togglePlayPause);
 
@@ -2322,7 +2448,7 @@ document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     if (audio.ctx.state === 'running') audio.ctx.suspend();
   } else {
-    if (audio.playing && audio.ctx.state === 'suspended') audio.ctx.resume();
+    if ((audio.playing || audio.musicPlaying) && audio.ctx.state === 'suspended') audio.ctx.resume();
   }
 });
 
@@ -2333,6 +2459,8 @@ function saveSoundPrefs() {
   saveProfilePrefs(state.activeProfileId, {
     soundId: audio.currentId,
     soundPlaying: audio.playing,
+    musicId: audio.musicId,
+    musicPlaying: audio.musicPlaying,
     volume: audio.volume,
   });
 }
@@ -2351,6 +2479,11 @@ function loadSoundPrefs() {
   } else {
     audio.currentId = prefs.soundId || null;
   }
+  if (prefs.musicId && prefs.musicPlaying) {
+    playMusic(prefs.musicId, { suppressSignal: true });
+  } else {
+    audio.musicId = prefs.musicId || null;
+  }
   updateSoundUI();
 }
 
@@ -2359,6 +2492,14 @@ function stopSoundOnExit() {
     try { audio.currentNodes.stop(); } catch(e) {}
     audio.currentNodes = null;
   }
+  if (audio.musicNodes) {
+    try { audio.musicNodes.stop(); } catch (e) {}
+    audio.musicNodes = null;
+  }
+  audio.musicPlaying = false;
+  audio.musicId = null;
+  audio.musicBuffer = null;     // release decoded PCM
+  audio.musicBufferId = null;
   audio.playing = false;
   audio.currentId = null;
   soundPanelOpen = false;

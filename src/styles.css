@@ -614,7 +614,7 @@ html, body {
   font-weight: 400;
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
-  min-height: 40px;
+  min-height: 48px;
   text-align: left;
 }
 
