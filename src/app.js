@@ -1843,6 +1843,9 @@ var MUSIC_TRACKS = [
   { id: 'forestrain', name: 'Forest Rain', file: 'audio/music/forest-rain.mp3' },
 ];
 var LOOP_EDGE_S = 0.15; // runtime loop points trim encoder padding
+// Rain droplet pitches: A-major pentatonic at A=432 —
+// mix of exact JI ratios from 216 (1/1, 9/8, 3/2) and rounded 12-TET (maj3, maj6).
+var DROPLET_FREQS = [216, 243, 272, 324, 363];
 
 var audio = {
   ctx: null,
@@ -1988,7 +1991,6 @@ function createRain(ctx, dest) {
   lfo2Gain.connect(patterGain.gain);
 
   // Sparse droplet grains — 432-family pentatonic, barely audible
-  var DROPLET_FREQS = [216, 243, 272, 324, 363];
   var dropletTimer = null;
   function scheduleDroplet() {
     dropletTimer = setTimeout(function() {
@@ -2032,41 +2034,81 @@ function createRain(ctx, dest) {
 
 // --- Drone Generator ---
 
+function detunedPair(ctx, freq, gainValue, dest) {
+  // Two oscillators ±3 cents apart: slow phase drift = natural warmth.
+  var g = ctx.createGain();
+  g.gain.value = gainValue;
+  g.connect(dest);
+  var half = ctx.createGain();
+  half.gain.value = 0.5;
+  half.connect(g);
+  var oa = ctx.createOscillator();
+  oa.type = 'sine';
+  oa.frequency.value = freq;
+  oa.detune.value = -3;
+  var ob = ctx.createOscillator();
+  ob.type = 'sine';
+  ob.frequency.value = freq;
+  ob.detune.value = 3;
+  oa.connect(half);
+  ob.connect(half);
+  oa.start();
+  ob.start();
+  return {
+    stop: function() {
+      try { oa.stop(); } catch (e) {}
+      try { ob.stop(); } catch (e) {}
+    },
+  };
+}
+
 function createDrone(ctx, dest) {
-  // Base tone: C2 ~65Hz
-  var osc1 = ctx.createOscillator();
-  osc1.type = 'sine';
-  osc1.frequency.value = 65;
-  var g1 = ctx.createGain();
-  g1.gain.value = 0.15;
-  osc1.connect(g1);
+  var mixGain = ctx.createGain();
+  mixGain.gain.value = 1;
+  mixGain.connect(dest);
 
-  // Octave harmonic: 130Hz at 30%
-  var osc2 = ctx.createOscillator();
-  osc2.type = 'sine';
-  osc2.frequency.value = 130;
-  var g2 = ctx.createGain();
-  g2.gain.value = 0.045;
-  osc2.connect(g2);
+  // Warm timbre: slowly sweeping lowpass over the oscillator stack
+  var sweep = ctx.createBiquadFilter();
+  sweep.type = 'lowpass';
+  sweep.frequency.value = 400;
+  sweep.connect(mixGain);
 
-  // Sub-harmonic: 32.5Hz at 20%
-  var osc3 = ctx.createOscillator();
-  osc3.type = 'sine';
-  osc3.frequency.value = 32.5;
-  var g3 = ctx.createGain();
-  g3.gain.value = 0.03;
-  osc3.connect(g3);
+  // 432-family stack (C in A=432 temperament), each a detuned pair
+  var base = detunedPair(ctx, 64.22, 0.15, sweep);     // C2
+  var octave = detunedPair(ctx, 128.43, 0.045, sweep); // C3
+  var sub = detunedPair(ctx, 32.11, 0.03, sweep);      // C1
 
-  // Slow pitch wobble on base
-  var lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = 0.05;
-  var lfoGain = ctx.createGain();
-  lfoGain.gain.value = 2;
-  lfo.connect(lfoGain);
-  lfoGain.connect(osc1.frequency);
+  // Filter sweep LFO (~0.03 Hz): breathing timbre
+  var sweepLfo = ctx.createOscillator();
+  sweepLfo.type = 'sine';
+  sweepLfo.frequency.value = 0.03;
+  var sweepDepth = ctx.createGain();
+  sweepDepth.gain.value = 250;
+  sweepLfo.connect(sweepDepth);
+  sweepDepth.connect(sweep.frequency);
+  sweepLfo.start();
 
-  // Noise texture layer
+  // Amplitude swell at calm-breath pace (~0.1 Hz = 6 breaths/min)
+  var breath = ctx.createOscillator();
+  breath.type = 'sine';
+  breath.frequency.value = 0.1;
+  var breathDepth = ctx.createGain();
+  breathDepth.gain.value = 0.04;
+  breath.connect(breathDepth);
+  breathDepth.connect(mixGain.gain);
+  breath.start();
+
+  // Intrinsic gentle theta tremor (~6 Hz, very low depth)
+  var tremor = ctx.createOscillator();
+  tremor.type = 'sine';
+  tremor.frequency.value = 6;
+  var tremorDepth = ctx.createGain();
+  tremorDepth.gain.value = 0.02;
+  tremor.connect(tremorDepth);
+  tremorDepth.connect(mixGain.gain);
+  tremor.start();
+
+  // Soft noise texture layer
   var noiseSrc = ctx.createBufferSource();
   noiseSrc.buffer = getNoiseBuffer();
   noiseSrc.loop = true;
@@ -2077,30 +2119,19 @@ function createDrone(ctx, dest) {
   noiseGain.gain.value = 0.015;
   noiseSrc.connect(noiseLp);
   noiseLp.connect(noiseGain);
-
-  // Mix into a single gain node for crossfade control
-  var mixGain = ctx.createGain();
-  mixGain.gain.value = 1;
-  g1.connect(mixGain);
-  g2.connect(mixGain);
-  g3.connect(mixGain);
   noiseGain.connect(mixGain);
-  mixGain.connect(dest);
-
-  osc1.start();
-  osc2.start();
-  osc3.start();
-  lfo.start();
   noiseSrc.start();
 
   return {
     gain: mixGain,
     stop: function() {
-      try { osc1.stop(); } catch(e) {}
-      try { osc2.stop(); } catch(e) {}
-      try { osc3.stop(); } catch(e) {}
-      try { lfo.stop(); } catch(e) {}
-      try { noiseSrc.stop(); } catch(e) {}
+      base.stop();
+      octave.stop();
+      sub.stop();
+      try { sweepLfo.stop(); } catch (e) {}
+      try { breath.stop(); } catch (e) {}
+      try { tremor.stop(); } catch (e) {}
+      try { noiseSrc.stop(); } catch (e) {}
     },
   };
 }
