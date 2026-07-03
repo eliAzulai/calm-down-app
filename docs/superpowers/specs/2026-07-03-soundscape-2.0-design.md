@@ -121,7 +121,7 @@ Per-profile sound prefs grow from `{ soundId, volume }` to `{ musicId, ambientId
 
 ## Offline & File Pipeline
 
-- `sw.js` bumps to `calm-station-v2`; precache list adds all files under `src/audio/` (~7–9 MB total after re-encode, vs ~20 MB raw).
+- `sw.js` bumps to `calm-station-v2`; precache list adds all files under `src/audio/` (~10.8 MB total after re-encode, vs ~20 MB raw).
 - One-time prep (documented in the implementation plan): `ffmpeg` re-encode to mono AAC ~112 kbps; determine `loopStart`/`loopEnd` per track by inspecting decoded buffers for the encoder-padding boundaries.
 - Full offline from first run: install downloads everything; no lazy paths.
 

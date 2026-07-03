@@ -7,9 +7,9 @@ cd "$(dirname "$0")/.."
 
 mkdir -p src/audio/music src/audio/sfx
 
-ffmpeg -y -i "Crystal Bowls at 432Hz.mp3"    -ac 1 -b:a 112k src/audio/music/bowls.mp3
-ffmpeg -y -i "Endless Tidal Breath.mp3"      -ac 1 -b:a 112k src/audio/music/tides.mp3
-ffmpeg -y -i "Forest Renewal Rain (1).mp3"   -ac 1 -b:a 112k src/audio/music/forest-rain.mp3
+ffmpeg -y -i "Crystal Bowls at 432Hz.mp3"    -vn -ac 1 -b:a 112k src/audio/music/bowls.mp3
+ffmpeg -y -i "Endless Tidal Breath.mp3"      -vn -ac 1 -b:a 112k src/audio/music/tides.mp3
+ffmpeg -y -i "Forest Renewal Rain (1).mp3"   -vn -ac 1 -b:a 112k src/audio/music/forest-rain.mp3
 
 # Placeholder accent: soft 540 Hz (C#5 in the A=432 family) strike with long fade.
 ffmpeg -y -f lavfi -i "sine=frequency=540:duration=1.5" \
