@@ -585,6 +585,21 @@ html, body {
   margin-bottom: var(--space-md);
 }
 
+.sound-section-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin: 2px 4px 6px;
+}
+.sound-options + .sound-section-label {
+  margin-top: 10px;
+}
+.sound-option.unavailable {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .sound-option {
   display: flex;
   align-items: center;

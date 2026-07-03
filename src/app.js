@@ -1820,18 +1820,36 @@ var SOUNDS = [
   { id: 'whitenoise', name: 'White Noise' },
 ];
 
+var MUSIC_TRACKS = [
+  { id: 'bowls',      name: 'Bowls',       file: 'audio/music/bowls.mp3' },
+  { id: 'tides',      name: 'Tides',       file: 'audio/music/tides.mp3' },
+  { id: 'forestrain', name: 'Forest Rain', file: 'audio/music/forest-rain.mp3' },
+];
+var LOOP_EDGE_S = 0.15; // runtime loop points trim encoder padding
+
 var audio = {
   ctx: null,
   masterGain: null,
-  currentId: null,     // 'rain' | 'drone' | null
-  currentNodes: null,  // { gain, stop }
+  musicBus: null,      // Soundscape 2.0 buses
+  ambientBus: null,
+  sfxBus: null,
+  entrainGain: null,
+  currentId: null,     // ambient layer (legacy field names kept for compat)
+  currentNodes: null,
   playing: false,
+  musicId: null,       // music layer
+  musicNodes: null,
+  musicPlaying: false,
+  musicBuffer: null,   // single decoded track held at a time
+  musicBufferId: null,
+  resume: null,        // remembered layers for play/pause
   volume: 0.5,
 };
 
 var $btnSound = document.getElementById('btn-sound');
 var $soundPanel = document.getElementById('sound-panel');
 var $soundOptions = document.getElementById('sound-options');
+var $musicOptions = document.getElementById('music-options');
 var $btnPlayPause = document.getElementById('btn-play-pause');
 var $iconPlay = document.getElementById('icon-play');
 var $iconPause = document.getElementById('icon-pause');
@@ -2205,6 +2223,20 @@ function renderSoundOptions() {
   });
 }
 
+function renderMusicOptions() {
+  $musicOptions.textContent = '';
+  MUSIC_TRACKS.forEach(function(t) {
+    var btn = document.createElement('button');
+    btn.className = 'sound-option' + (audio.musicId === t.id && audio.musicPlaying ? ' selected' : '');
+    btn.dataset.music = t.id;
+    var dot = document.createElement('span');
+    dot.className = 'sound-dot';
+    btn.appendChild(dot);
+    btn.appendChild(document.createTextNode(t.name));
+    $musicOptions.appendChild(btn);
+  });
+}
+
 function updateSoundUI() {
   // Update option highlights
   var opts = $soundOptions.querySelectorAll('.sound-option');
@@ -2237,6 +2269,7 @@ $btnSound.addEventListener('click', function(e) {
   $soundPanel.classList.toggle('open', soundPanelOpen);
   if (soundPanelOpen) recordSignal('sound_panel_open', {});
   if (soundPanelOpen) renderSoundOptions();
+  if (soundPanelOpen) renderMusicOptions();
 });
 
 // Close panel on outside click
