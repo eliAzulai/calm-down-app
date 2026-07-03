@@ -1924,50 +1924,108 @@ function getNoiseBuffer() {
 function createRain(ctx, dest) {
   var buf = getNoiseBuffer();
 
-  // Main rain texture
-  var noise = ctx.createBufferSource();
-  noise.buffer = buf;
-  noise.loop = true;
+  var mix = ctx.createGain();
+  mix.gain.value = 1;
+  // Cap the hiss edge for the whole texture
+  var cap = ctx.createBiquadFilter();
+  cap.type = 'lowpass';
+  cap.frequency.value = 6000;
+  mix.connect(cap);
+  cap.connect(dest);
 
-  var bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.value = 2000;
-  bp.Q.value = 0.5;
+  // Mid body ~1.5 kHz
+  var body = ctx.createBufferSource();
+  body.buffer = buf;
+  body.loop = true;
+  var bodyBp = ctx.createBiquadFilter();
+  bodyBp.type = 'bandpass';
+  bodyBp.frequency.value = 1500;
+  bodyBp.Q.value = 0.6;
+  var bodyGain = ctx.createGain();
+  bodyGain.gain.value = 0.18;
+  body.connect(bodyBp);
+  bodyBp.connect(bodyGain);
+  bodyGain.connect(mix);
 
-  var gain = ctx.createGain();
-  gain.gain.value = 0.25;
+  // High patter ~4.5 kHz, gentle
+  var patter = ctx.createBufferSource();
+  patter.buffer = buf;
+  patter.loop = true;
+  var patterBp = ctx.createBiquadFilter();
+  patterBp.type = 'bandpass';
+  patterBp.frequency.value = 4500;
+  patterBp.Q.value = 0.8;
+  var patterGain = ctx.createGain();
+  patterGain.gain.value = 0.06;
+  patter.connect(patterBp);
+  patterBp.connect(patterGain);
+  patterGain.connect(mix);
 
-  noise.connect(bp);
-  bp.connect(gain);
-  gain.connect(dest);
-  noise.start();
-
-  // Low rumble
+  // Low rumble at 81 Hz (E in the A=432 family)
   var rumble = ctx.createOscillator();
   rumble.type = 'sine';
-  rumble.frequency.value = 80;
+  rumble.frequency.value = 81;
   var rumbleGain = ctx.createGain();
   rumbleGain.gain.value = 0.04;
   rumble.connect(rumbleGain);
-  rumbleGain.connect(dest);
-  rumble.start();
+  rumbleGain.connect(mix);
 
-  // Amplitude modulation (slow variation)
-  var lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = 0.15;
-  var lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.06;
-  lfo.connect(lfoGain);
-  lfoGain.connect(gain.gain);
-  lfo.start();
+  // Incommensurate LFOs so the texture never audibly cycles
+  var lfo1 = ctx.createOscillator();
+  lfo1.type = 'sine';
+  lfo1.frequency.value = 0.07;
+  var lfo1Gain = ctx.createGain();
+  lfo1Gain.gain.value = 0.05;
+  lfo1.connect(lfo1Gain);
+  lfo1Gain.connect(bodyGain.gain);
+
+  var lfo2 = ctx.createOscillator();
+  lfo2.type = 'sine';
+  lfo2.frequency.value = 0.13;
+  var lfo2Gain = ctx.createGain();
+  lfo2Gain.gain.value = 0.03;
+  lfo2.connect(lfo2Gain);
+  lfo2Gain.connect(patterGain.gain);
+
+  // Sparse droplet grains — 432-family pentatonic, barely audible
+  var DROPLET_FREQS = [216, 243, 272, 324, 363];
+  var dropletTimer = null;
+  function scheduleDroplet() {
+    dropletTimer = setTimeout(function() {
+      try {
+        var t = ctx.currentTime;
+        var osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = DROPLET_FREQS[Math.floor(Math.random() * DROPLET_FREQS.length)];
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.02, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+        osc.connect(g);
+        g.connect(mix);
+        osc.start(t);
+        osc.stop(t + 0.5);
+      } catch (e) {}
+      scheduleDroplet();
+    }, 2000 + Math.random() * 4000);
+  }
+
+  body.start();
+  patter.start();
+  rumble.start();
+  lfo1.start();
+  lfo2.start();
+  scheduleDroplet();
 
   return {
-    gain: gain,
+    gain: mix,
     stop: function() {
-      try { noise.stop(); } catch(e) {}
-      try { rumble.stop(); } catch(e) {}
-      try { lfo.stop(); } catch(e) {}
+      clearTimeout(dropletTimer);
+      try { body.stop(); } catch (e) {}
+      try { patter.stop(); } catch (e) {}
+      try { rumble.stop(); } catch (e) {}
+      try { lfo1.stop(); } catch (e) {}
+      try { lfo2.stop(); } catch (e) {}
     },
   };
 }
