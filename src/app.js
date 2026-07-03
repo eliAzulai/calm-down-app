@@ -2150,13 +2150,19 @@ function createOcean(ctx, dest) {
 
   var mix = ctx.createGain();
   mix.gain.value = 1;
+  // Uniform loudness scale toward picker parity. Must be its own node:
+  // mix.gain is the crossfade handle playSound ramps 0->1, so any value
+  // planted there is overwritten on select.
+  var scale = ctx.createGain();
+  scale.gain.value = 1.4;
+  mix.connect(scale);
   var pan = null;
   if (ctx.createStereoPanner) {
     pan = ctx.createStereoPanner();
-    mix.connect(pan);
+    scale.connect(pan);
     pan.connect(dest);
   } else {
-    mix.connect(dest);
+    scale.connect(dest);
   }
 
   // Wave body
