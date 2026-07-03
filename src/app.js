@@ -1842,6 +1842,7 @@ var audio = {
   musicPlaying: false,
   musicBuffer: null,   // single decoded track held at a time
   musicBufferId: null,
+  musicGen: 0,         // decode-lifecycle generation counter
   resume: null,        // remembered layers for play/pause
   volume: 0.5,
 };
@@ -2198,11 +2199,17 @@ function getMusicTrack(trackId) {
   return null;
 }
 
+var musicLoad = { promise: null, trackId: null };
+
 function loadMusicBuffer(track) {
   if (audio.musicBufferId === track.id && audio.musicBuffer) {
     return Promise.resolve(audio.musicBuffer);
   }
-  return fetch(track.file)
+  // De-dupe: reuse an in-flight decode of the same track.
+  if (musicLoad.promise && musicLoad.trackId === track.id) {
+    return musicLoad.promise;
+  }
+  var p = fetch(track.file)
     .then(function(res) {
       if (!res.ok) throw new Error('fetch failed: ' + track.file);
       return res.arrayBuffer();
@@ -2211,11 +2218,15 @@ function loadMusicBuffer(track) {
       return audio.ctx.decodeAudioData(data);
     })
     .then(function(buffer) {
-      // Memory rule: exactly one decoded track held at a time.
-      audio.musicBuffer = buffer;
-      audio.musicBufferId = track.id;
+      if (musicLoad.promise === p) { musicLoad.promise = null; musicLoad.trackId = null; }
       return buffer;
+    }, function(err) {
+      if (musicLoad.promise === p) { musicLoad.promise = null; musicLoad.trackId = null; }
+      throw err;
     });
+  musicLoad.promise = p;
+  musicLoad.trackId = track.id;
+  return p;
 }
 
 function markTrackUnavailable(trackId) {
@@ -2244,9 +2255,14 @@ function playMusic(trackId, options) {
   var track = getMusicTrack(trackId);
   if (!track) return;
 
+  audio.musicGen += 1;
+  var gen = audio.musicGen;
+
   // Fade out current music
   if (audio.musicNodes) {
     var old = audio.musicNodes;
+    old.gain.gain.cancelScheduledValues(ctx.currentTime);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
     old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
     setTimeout(function() { try { old.stop(); } catch (e) {} }, 600);
     audio.musicNodes = null;
@@ -2262,8 +2278,11 @@ function playMusic(trackId, options) {
   saveSoundPrefs();
 
   loadMusicBuffer(track).then(function(buffer) {
-    // Selection may have changed while decoding
-    if (!buffer || audio.musicId !== trackId || !audio.musicPlaying) return;
+    // Bail if this decode outlived its selection (switch/stop/exit since).
+    if (!buffer || gen !== audio.musicGen || audio.musicId !== trackId || !audio.musicPlaying) return;
+    // Memory rule: single decoded track, written only by the current selection.
+    audio.musicBuffer = buffer;
+    audio.musicBufferId = track.id;
     var src = ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = true;
@@ -2280,15 +2299,18 @@ function playMusic(trackId, options) {
       stop: function() { try { src.stop(); } catch (e) {} },
     };
   }).catch(function() {
-    markTrackUnavailable(trackId);
+    if (gen === audio.musicGen) markTrackUnavailable(trackId);
   });
 }
 
 function stopMusic() {
+  audio.musicGen += 1;
   var stoppedId = audio.musicId;
   if (audio.ctx && audio.musicNodes) {
     var ctx = audio.ctx;
     var old = audio.musicNodes;
+    old.gain.gain.cancelScheduledValues(ctx.currentTime);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
     old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
     setTimeout(function() { try { old.stop(); } catch (e) {} }, 600);
   }
@@ -2492,6 +2514,7 @@ function stopSoundOnExit() {
     try { audio.currentNodes.stop(); } catch(e) {}
     audio.currentNodes = null;
   }
+  audio.musicGen += 1;
   if (audio.musicNodes) {
     try { audio.musicNodes.stop(); } catch (e) {}
     audio.musicNodes = null;

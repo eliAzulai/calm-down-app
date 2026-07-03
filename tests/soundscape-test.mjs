@@ -22,6 +22,23 @@ await page.addInitScript(() => {
   localStorage.setItem('calm-station-profiles',
     JSON.stringify([{ id: 'sc1', name: 'ScapeKid', icon: 'flame', theme: 'ocean' }]));
 });
+
+// Instrument music-length buffer sources (music tracks are 200s+; ambient
+// noise buffers are seconds — duration>100 separates the layers).
+await page.addInitScript(() => {
+  window.__musicSrc = { started: 0, stopped: 0 };
+  const origStart = AudioBufferSourceNode.prototype.start;
+  const origStop = AudioBufferSourceNode.prototype.stop;
+  AudioBufferSourceNode.prototype.start = function(...a) {
+    if (this.buffer && this.buffer.duration > 100) window.__musicSrc.started++;
+    return origStart.apply(this, a);
+  };
+  AudioBufferSourceNode.prototype.stop = function(...a) {
+    const r = origStop.apply(this, a);
+    if (this.buffer && this.buffer.duration > 100) window.__musicSrc.stopped++;
+    return r;
+  };
+});
 await page.goto(BASE);
 await page.click('.profile-card.filled');
 await page.waitForSelector('#screen-canvas.active');
@@ -72,6 +89,20 @@ await check('Music prefs persisted', async () => {
   const prefs = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-sc1-prefs')));
   if (prefs.musicId !== 'tides' || prefs.soundId !== 'rain') throw new Error(JSON.stringify(prefs));
   return 'musicId + soundId saved';
+});
+
+await check('Rapid switch leaves exactly one live music source', async () => {
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForTimeout(50);
+  await page.click('#music-options .sound-option[data-music="tides"]');
+  await page.waitForTimeout(50);
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForFunction(() => audio.musicPlaying === true && audio.musicNodes !== null, null, { timeout: 10000 });
+  await page.waitForTimeout(1500); // let stray decodes settle and fade-stop timers fire
+  const counts = await page.evaluate(() => window.__musicSrc);
+  const live = counts.started - counts.stopped;
+  if (live !== 1) throw new Error(`live music sources: ${live} (${JSON.stringify(counts)})`);
+  return 'one live source';
 });
 
 await check('No console errors', async () => {
