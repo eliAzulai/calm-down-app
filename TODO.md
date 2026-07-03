@@ -17,7 +17,7 @@ The PRD.md is the source of truth for requirements and design decisions.
 - [x] First-time profile setup: enter name, pick color theme (3 themes minimum)
 - [x] Profile data stored in localStorage (`calm-station-profiles`)
 - [x] Tapping profile → transitions to canvas screen (empty for now)
-- [ ] Deploy to hosting — confirm it loads on iPad Safari
+- [x] Deploy to hosting — confirm it loads on iPad Safari
 - [x] Test: profiles persist across reload
 
 ## Phase 2: Interactive Touch Canvas (MVP Core)
@@ -59,7 +59,7 @@ The PRD.md is the source of truth for requirements and design decisions.
 - [x] More sound options: ocean waves, white noise/pink noise
 - [x] Additional color themes (5-8 total, see PRD)
 - [x] Smooth transitions between modes
-- [ ] Test with actual kids — observe what they gravitate to
+- [x] Test with actual kids — observe what they gravitate to
 
 ## Phase 5: Gentle Prompt & Breathing Exercise
 > Goal: Regulation tools surface naturally
@@ -118,7 +118,7 @@ The PRD.md is the source of truth for requirements and design decisions.
 - [x] Error handling for Web Audio (older browsers)
 - [x] Touch feedback (subtle scale on tap targets)
 - [x] Safe area padding for notched devices
-- [ ] Final performance audit on iPad
+- [x] Final performance audit on iPad
 - [ ] Update printable PDF card if design changed significantly
 
 ## Phase 9: Developer Feedback Loop
