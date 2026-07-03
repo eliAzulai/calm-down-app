@@ -189,6 +189,8 @@ function getSignalContext(profileId) {
     mode: mode,
     soundId: currentAudio ? currentAudio.currentId || null : null,
     soundPlaying: currentAudio ? currentAudio.playing === true : false,
+    musicId: currentAudio ? currentAudio.musicId || null : null,
+    musicPlaying: currentAudio ? currentAudio.musicPlaying === true : false,
   };
 }
 
@@ -238,6 +240,7 @@ function computeSignalSummary(profileId) {
   var events = readSignals(profileId);
   var modeTime = {};
   var soundCounts = {};
+  var musicCounts = {};
   var promptShown = 0;
   var promptOpened = 0;
   var promptIgnored = 0;
@@ -277,10 +280,18 @@ function computeSignalSummary(profileId) {
     }
     if (event.type === 'sound_select') {
       var soundId = payload.soundId || 'unknown';
-      soundCounts[soundId] = (soundCounts[soundId] || 0) + 1;
+      if (payload.layer === 'music') {
+        musicCounts[soundId] = (musicCounts[soundId] || 0) + 1;
+      } else {
+        soundCounts[soundId] = (soundCounts[soundId] || 0) + 1;
+      }
     }
     if (event.type === 'sound_stop') {
-      soundCounts.off = (soundCounts.off || 0) + 1;
+      if (payload.layer === 'music') {
+        musicCounts.off = (musicCounts.off || 0) + 1;
+      } else {
+        soundCounts.off = (soundCounts.off || 0) + 1;
+      }
     }
     if (event.type === 'prompt_shown') promptShown += 1;
     if (event.type === 'prompt_opened') promptOpened += 1;
@@ -296,6 +307,10 @@ function computeSignalSummary(profileId) {
     return soundCounts[b] - soundCounts[a];
   })[0] || null;
 
+  var topMusic = Object.keys(musicCounts).sort(function(a, b) {
+    return musicCounts[b] - musicCounts[a];
+  })[0] || null;
+
   return {
     events: events,
     sessions: sessions,
@@ -305,6 +320,8 @@ function computeSignalSummary(profileId) {
     topModeSeconds: topMode ? modeTime[topMode] : 0,
     topSound: topSound,
     soundCounts: soundCounts,
+    topMusic: topMusic,
+    musicCounts: musicCounts,
     promptShown: promptShown,
     promptOpened: promptOpened,
     promptIgnored: promptIgnored,
@@ -2157,7 +2174,7 @@ function playSound(soundId, options) {
     audio.playing = false;
     updateSoundUI();
     updateDucking();
-    recordSignal('sound_stop', { soundId: soundId });
+    recordSignal('sound_stop', { soundId: soundId, layer: 'ambient' });
     saveSoundPrefs();
     return;
   }
@@ -2174,7 +2191,7 @@ function playSound(soundId, options) {
   audio.currentNodes = nodes;
   audio.playing = true;
   if (!options.suppressSignal) {
-    recordSignal('sound_select', { soundId: soundId });
+    recordSignal('sound_select', { soundId: soundId, layer: 'ambient' });
   }
   updateSoundUI();
   updateDucking();
@@ -2192,7 +2209,7 @@ function stopSound() {
   setTimeout(function() { try { old.stop(); } catch(e) {} }, 600);
   audio.currentNodes = null;
   audio.playing = false;
-  if (stoppedSoundId) recordSignal('sound_stop', { soundId: stoppedSoundId });
+  if (stoppedSoundId) recordSignal('sound_stop', { soundId: stoppedSoundId, layer: 'ambient' });
   updateSoundUI();
   updateDucking();
   saveSoundPrefs();
@@ -2851,6 +2868,7 @@ function renderDevProfiles() {
     var topMode = summary.topMode ? (MODE_LABELS[summary.topMode] || summary.topMode) : 'No mode time yet';
     var topModeTime = summary.topModeSeconds ? formatDuration(summary.topModeSeconds) : '0s';
     var soundUse = summary.topSound ? getSoundLabel(summary.topSound) + ' (' + summary.soundCounts[summary.topSound] + ')' : 'No sound use yet';
+    var musicUse = summary.topMusic ? getSoundLabel(summary.topMusic) + ' (' + summary.musicCounts[summary.topMusic] + ')' : 'No music use yet';
 
     var card = document.createElement('div');
     card.className = 'dev-profile-card';
@@ -2861,6 +2879,7 @@ function renderDevProfiles() {
         devStat(topMode, 'Top Mode') +
         devStat(topModeTime, 'Top Mode Time') +
         devStat(soundUse, 'Sound Use') +
+        devStat(musicUse, 'Top Music') +
         devStat(summary.promptOpened, 'Prompt Opens') +
       '</div>';
     $devProfiles.appendChild(card);

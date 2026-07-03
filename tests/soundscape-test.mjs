@@ -197,6 +197,25 @@ await check('Toggle-off while paused clears that half only', async () => {
   return 'music back, stopped ambient stays stopped';
 });
 
+await check('Signals carry layer field', async () => {
+  const events = await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('calm-station-sc1-signals')) || [];
+    const b = JSON.parse(localStorage.getItem('calm-station-sc2-signals')) || [];
+    return a.concat(b);
+  });
+  const music = events.filter(e => e.type === 'sound_select' && e.payload.layer === 'music');
+  const ambient = events.filter(e => e.type === 'sound_select' && e.payload.layer === 'ambient');
+  if (!music.length || !ambient.length) throw new Error(`music:${music.length} ambient:${ambient.length}`);
+  return `${music.length} music, ${ambient.length} ambient selects`;
+});
+
+await check('Signal context includes music state', async () => {
+  const events = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-sc2-signals')) || []);
+  const last = events[events.length - 1];
+  if (!last || !('musicId' in (last.context || {}))) throw new Error('context missing musicId');
+  return 'context has musicId/musicPlaying';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';
