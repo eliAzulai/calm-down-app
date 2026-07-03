@@ -2039,6 +2039,8 @@ function detunedPair(ctx, freq, gainValue, dest) {
   var g = ctx.createGain();
   g.gain.value = gainValue;
   g.connect(dest);
+  // 0.5 sum-scaler: the two ±3¢ oscillators are highly correlated, so summing
+  // near-doubles amplitude; halving keeps nominal gain comparable to one osc.
   var half = ctx.createGain();
   half.gain.value = 0.5;
   half.connect(g);
@@ -2067,7 +2069,9 @@ function createDrone(ctx, dest) {
   mixGain.gain.value = 1;
   mixGain.connect(dest);
 
-  // Warm timbre: slowly sweeping lowpass over the oscillator stack
+  // Gentle lowpass over the oscillator stack. NOTE: on pure sines its audible
+  // effect is minimal — the drone's "breathing" comes from the 0.1 Hz amplitude
+  // swell and the ±3-cent pair beating below, not this filter.
   var sweep = ctx.createBiquadFilter();
   sweep.type = 'lowpass';
   sweep.frequency.value = 400;
@@ -2078,7 +2082,7 @@ function createDrone(ctx, dest) {
   var octave = detunedPair(ctx, 128.43, 0.045, sweep); // C3
   var sub = detunedPair(ctx, 32.11, 0.03, sweep);      // C1
 
-  // Filter sweep LFO (~0.03 Hz): breathing timbre
+  // Filter sweep LFO (~0.03 Hz) — subtle at best on sine partials (kept for cheapness)
   var sweepLfo = ctx.createOscillator();
   sweepLfo.type = 'sine';
   sweepLfo.frequency.value = 0.03;
@@ -2141,33 +2145,45 @@ function createDrone(ctx, dest) {
 function createOcean(ctx, dest) {
   var buf = getNoiseBuffer();
 
-  // Main wave layer
+  var mix = ctx.createGain();
+  mix.gain.value = 1;
+  var pan = null;
+  if (ctx.createStereoPanner) {
+    pan = ctx.createStereoPanner();
+    mix.connect(pan);
+    pan.connect(dest);
+  } else {
+    mix.connect(dest);
+  }
+
+  // Wave body
   var noise = ctx.createBufferSource();
   noise.buffer = buf;
   noise.loop = true;
-
   var bp = ctx.createBiquadFilter();
   bp.type = 'bandpass';
   bp.frequency.value = 1000;
   bp.Q.value = 0.3;
-
-  var gain = ctx.createGain();
-  gain.gain.value = 0.2;
-
+  var waveGain = ctx.createGain();
+  waveGain.gain.value = 0.05;
   noise.connect(bp);
-  bp.connect(gain);
+  bp.connect(waveGain);
+  waveGain.connect(mix);
 
-  // Slow amplitude LFO for wave motion (~0.08Hz = one cycle every 12s)
-  var lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = 0.08;
-  var lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.15;
-  lfo.connect(lfoGain);
-  lfoGain.connect(gain.gain);
-  lfo.start();
+  // Foam wash: high-passed, synced to each crest
+  var foam = ctx.createBufferSource();
+  foam.buffer = buf;
+  foam.loop = true;
+  var hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 2000;
+  var foamGain = ctx.createGain();
+  foamGain.gain.value = 0.0001;
+  foam.connect(hp);
+  hp.connect(foamGain);
+  foamGain.connect(mix);
 
-  // Deep water rumble
+  // Deep water
   var deep = ctx.createBufferSource();
   deep.buffer = buf;
   deep.loop = true;
@@ -2178,23 +2194,53 @@ function createOcean(ctx, dest) {
   deepGain.gain.value = 0.08;
   deep.connect(deepLp);
   deepLp.connect(deepGain);
+  deepGain.connect(mix);
 
-  // Mix
-  var mixGain = ctx.createGain();
-  mixGain.gain.value = 1;
-  gain.connect(mixGain);
-  deepGain.connect(mixGain);
-  mixGain.connect(dest);
+  // Slow stereo drift
+  var panLfo = null;
+  if (pan) {
+    panLfo = ctx.createOscillator();
+    panLfo.type = 'sine';
+    panLfo.frequency.value = 0.017;
+    var panDepth = ctx.createGain();
+    panDepth.gain.value = 0.4;
+    panLfo.connect(panDepth);
+    panDepth.connect(pan.pan);
+    panLfo.start();
+  }
+
+  // Wave engine: every wave gets its own randomized envelope — no audible loop.
+  var waveTimer = null;
+  function scheduleWave() {
+    var period = 8 + Math.random() * 8;               // 8–16 s
+    var peak = 0.12 + Math.random() * 0.13;           // varying height
+    var rise = period * (0.35 + Math.random() * 0.15);
+    var t = ctx.currentTime;
+    waveGain.gain.cancelScheduledValues(t);
+    waveGain.gain.setValueAtTime(Math.max(0.02, waveGain.gain.value), t);
+    waveGain.gain.linearRampToValueAtTime(peak, t + rise);
+    waveGain.gain.linearRampToValueAtTime(0.04, t + period);
+    foamGain.gain.cancelScheduledValues(t);
+    foamGain.gain.setValueAtTime(0.0001, t);
+    foamGain.gain.setValueAtTime(0.0001, t + rise * 0.9);
+    foamGain.gain.linearRampToValueAtTime(peak * 0.35, t + rise);
+    foamGain.gain.exponentialRampToValueAtTime(0.0001, t + rise + 2.5);
+    waveTimer = setTimeout(scheduleWave, period * 1000);
+  }
 
   noise.start();
+  foam.start();
   deep.start();
+  scheduleWave();
 
   return {
-    gain: mixGain,
+    gain: mix,
     stop: function() {
-      try { noise.stop(); } catch(e) {}
-      try { deep.stop(); } catch(e) {}
-      try { lfo.stop(); } catch(e) {}
+      clearTimeout(waveTimer);
+      try { noise.stop(); } catch (e) {}
+      try { foam.stop(); } catch (e) {}
+      try { deep.stop(); } catch (e) {}
+      if (panLfo) { try { panLfo.stop(); } catch (e) {} }
     },
   };
 }
