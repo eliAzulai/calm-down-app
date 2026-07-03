@@ -119,6 +119,19 @@ await check('Rapid switch leaves exactly one live music source', async () => {
   return 'one live source';
 });
 
+await check('Ambient ducks under music', async () => {
+  // state from previous checks: forestrain (music) + rain (ambient) both live
+  await page.waitForFunction(() => Math.abs(audio.ambientBus.gain.value - 0.7) < 0.1, null, { timeout: 6000 });
+  return 'ambientBus ~0.7';
+});
+
+await check('Duck releases when music stops', async () => {
+  await page.click('#music-options .sound-option[data-music="forestrain"]');
+  await page.waitForFunction(() => audio.musicPlaying === false, null, { timeout: 5000 });
+  await page.waitForFunction(() => Math.abs(audio.ambientBus.gain.value - 1.0) < 0.1, null, { timeout: 6000 });
+  return 'ambientBus back to 1.0';
+});
+
 await check('No console errors', async () => {
   if (consoleErrors.length) throw new Error(consoleErrors[0]);
   return 'clean';

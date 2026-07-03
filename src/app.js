@@ -2143,6 +2143,8 @@ function playSound(soundId, options) {
   // Fade out current
   if (audio.currentNodes) {
     var old = audio.currentNodes;
+    old.gain.gain.cancelScheduledValues(ctx.currentTime);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
     old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
     setTimeout(function() { try { old.stop(); } catch(e) {} }, 600);
   }
@@ -2153,6 +2155,7 @@ function playSound(soundId, options) {
     audio.currentNodes = null;
     audio.playing = false;
     updateSoundUI();
+    updateDucking();
     recordSignal('sound_stop', { soundId: soundId });
     saveSoundPrefs();
     return;
@@ -2173,6 +2176,7 @@ function playSound(soundId, options) {
     recordSignal('sound_select', { soundId: soundId });
   }
   updateSoundUI();
+  updateDucking();
   saveSoundPrefs();
 }
 
@@ -2181,12 +2185,15 @@ function stopSound() {
   var ctx = audio.ctx;
   var old = audio.currentNodes;
   var stoppedSoundId = audio.currentId;
+  old.gain.gain.cancelScheduledValues(ctx.currentTime);
+  old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
   old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
   setTimeout(function() { try { old.stop(); } catch(e) {} }, 600);
   audio.currentNodes = null;
   audio.playing = false;
   if (stoppedSoundId) recordSignal('sound_stop', { soundId: stoppedSoundId });
   updateSoundUI();
+  updateDucking();
   saveSoundPrefs();
 }
 
@@ -2323,8 +2330,10 @@ function stopMusic() {
 }
 
 function updateDucking() {
-  // Placeholder until Task 5 — keep ambient at unity.
+  // When both layers play, ambient becomes the bed under the music.
   if (!audio.ctx || !audio.ambientBus) return;
+  var target = (audio.musicPlaying && audio.playing) ? 0.7 : 1.0;
+  audio.ambientBus.gain.setTargetAtTime(target, audio.ctx.currentTime, 0.7); // ~2s settle
 }
 
 function togglePlayPause() {
