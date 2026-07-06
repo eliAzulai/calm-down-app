@@ -592,16 +592,19 @@ html, body {
   visibility: visible;
 }
 
-/* #mode-tray reuses .sound-panel's look (same corner-menu convention) but
-   anchors lower than #sound-panel so the two trays don't collide if a kid
-   opens both in quick succession — #sound-panel's own content (music +
-   sounds + controls) can run well past 500px tall, so a horizontal-only
-   split isn't reliable at this cluster's width; dropping the tray below
-   that is. Both close on any outside click regardless. */
+/* #mode-tray inherits .sound-panel's exact corner anchor (button-relative
+   top: space-lg + 56px, flush right) — no positional overrides, so it can
+   never drift off short viewports. The two panels share that anchor zone
+   and are mutually exclusive in JS (opening one closes the other), so they
+   never contend for it. max-height keeps the tray inside the viewport on
+   the smallest supported screen (375x667): 96px = 80px anchor top
+   (space-lg 24px + 56px button zone) + 16px bottom margin; when the chip
+   grid doesn't fit, it scrolls WITHIN the tray. */
 #mode-tray {
-  right: calc(var(--space-lg) + env(safe-area-inset-right, 0));
-  top: calc(var(--space-lg) + 56px + 560px + env(safe-area-inset-top, 0));
   min-width: 264px;
+  max-height: calc(100vh - 96px - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .mode-options {

@@ -115,6 +115,36 @@ await check('Rotation preserves registry-mode state convention', async () => {
   return `garden survived rotation (${before} blooms)`;
 });
 
+await check('Mode tray fully usable at mobile viewports', async () => {
+  for (const vp of [{ width: 375, height: 667 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(vp);
+    await page.waitForTimeout(400);
+    await page.click('#btn-modes');
+    await page.waitForSelector('#mode-tray.open');
+    const box = await page.locator('#mode-tray').boundingBox();
+    if (box.y < 0 || box.x < 0 || box.y + box.height > vp.height + 1) throw new Error(`${vp.width}x${vp.height}: tray box ${JSON.stringify(box)}`);
+    // every chip reachable (scroll within tray allowed)
+    const chip = page.locator('#mode-options .mode-option[data-mode="drawing"]');
+    await chip.scrollIntoViewIfNeeded();
+    const cb = await chip.boundingBox();
+    if (!cb || cb.y + cb.height > vp.height + 1) throw new Error(`${vp.width}x${vp.height}: drawing chip unreachable`);
+    await page.click('#btn-modes'); // close
+    await page.waitForTimeout(200);
+  }
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.waitForTimeout(400);
+  return 'both mobile viewports OK';
+});
+
+await check('Panels are mutually exclusive', async () => {
+  await page.click('#btn-sound'); await page.waitForSelector('#sound-panel.open');
+  await page.click('#btn-modes'); await page.waitForSelector('#mode-tray.open');
+  const soundOpen = await page.evaluate(() => document.getElementById('sound-panel').classList.contains('open'));
+  if (soundOpen) throw new Error('sound panel stayed open');
+  await page.click('#btn-modes'); await page.waitForTimeout(200);
+  return 'exclusive';
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };

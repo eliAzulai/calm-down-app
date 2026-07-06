@@ -689,6 +689,7 @@ function backToProfiles() {
   endSignalSession();
   stopCanvas();
   stopSoundOnExit();
+  closeModeTray(); // same exit hygiene stopSoundOnExit gives the sound panel
   stopGentlePromptTimer();
   closeBreatheOverlay();
   closeGroundOverlay();
@@ -2880,6 +2881,7 @@ $btnSound.addEventListener('click', function(e) {
   ensureAudioContext(); // iOS requires user gesture
   soundPanelOpen = !soundPanelOpen;
   $soundPanel.classList.toggle('open', soundPanelOpen);
+  if (soundPanelOpen) closeModeTray(); // panels share the corner anchor zone — one at a time
   if (soundPanelOpen) recordSignal('sound_panel_open', {});
   if (soundPanelOpen) renderSoundOptions();
   if (soundPanelOpen) renderMusicOptions();
@@ -2925,20 +2927,33 @@ function renderModeOptions() {
   });
 }
 
+// Hoisted so $btnSound's (earlier) handler and backToProfiles can call it.
+function closeModeTray() {
+  modeTrayOpen = false;
+  $modeTray.classList.remove('open');
+  $btnModes.classList.remove('active');
+}
+
 $btnModes.addEventListener('click', function(e) {
   e.stopPropagation();
   modeTrayOpen = !modeTrayOpen;
   $modeTray.classList.toggle('open', modeTrayOpen);
   $btnModes.classList.toggle('active', modeTrayOpen);
-  if (modeTrayOpen) renderModeOptions();
+  if (modeTrayOpen) {
+    // Panels share the corner anchor zone — opening the tray closes the
+    // sound panel (and vice versa in $btnSound's handler). $btnSound's
+    // .active class reflects *playing* state, not panel state, so it is
+    // deliberately left alone here (same as the outside-click closer).
+    soundPanelOpen = false;
+    $soundPanel.classList.remove('open');
+    renderModeOptions();
+  }
 });
 
 // Close tray on outside click
 document.addEventListener('click', function(e) {
   if (modeTrayOpen && !$modeTray.contains(e.target) && e.target !== $btnModes) {
-    modeTrayOpen = false;
-    $modeTray.classList.remove('open');
-    $btnModes.classList.remove('active');
+    closeModeTray();
   }
 });
 
@@ -2949,9 +2964,7 @@ $modeOptions.addEventListener('click', function(e) {
   var index = MODES.indexOf(btn.dataset.mode);
   if (index < 0) return;
   switchToMode(index, 'tray');
-  modeTrayOpen = false;
-  $modeTray.classList.remove('open');
-  $btnModes.classList.remove('active');
+  closeModeTray();
   renderModeOptions();
 });
 
