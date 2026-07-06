@@ -71,11 +71,11 @@ residue gate (post-doodle canvas returns to baseline ≤ 4 s in *fades* mode) ·
 
 Modes are isolated: a mode whose `tick` throws is caught by the dispatcher, logged to signals (`mode_error`), and the app falls back to the trails mode rather than freezing the canvas. Controls are defensive no-ops on bad ids. Registry absence (modes.js failed to load offline-cache-miss) degrades to legacy five modes.
 
-## Open Decisions (resolve at spec review — recommendations included)
+## Resolved Decisions (approved at spec review, 2026-07-06)
 
-1. **Palette-vs-theme:** modes now carry their own curated palettes, but profiles have themes (ocean/sunset/forest/neon/mono). Recommendation: mode palettes win on the canvas; the profile theme keeps styling UI chrome only. (Alternative: filter each mode's mood list per theme — more work, less color variety.)
-2. **Mode picker layout:** recommendation: 12 modes in a 3×4 chip grid tray, new modes first, Echo in slot 1.
-3. **Legacy-mode retirement:** keep all 12 for the first observation cycle; retire by data.
+1. **Palette-vs-theme:** mode palettes win on the canvas; the profile theme styles UI chrome only.
+2. **Mode picker layout:** 12 modes in a 3×4 chip grid tray (sound-panel interaction pattern), new modes first, Echo in slot 1; double-tap keeps cycling as a shortcut.
+3. **Legacy-mode retirement:** all 12 modes ship through the first observation cycle; retirement decided by observation data.
 
 ## Out of Scope
 
