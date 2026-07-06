@@ -365,6 +365,7 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     this.characterId = 'mix';
     this.sizeMul = 1;
     this.sizeRandom = false;
+    this.traceMode = 'fades'; // kid-facing trace control: 'fades' (default) | 'stays'
   }
 
   function init(w, h, theme) {
@@ -675,17 +676,24 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     // residual canvas pixels for its own look), so a periodic true clearRect
     // is indistinguishable from the soft fade for anything still alive, and
     // it sweeps away that quantization floor for anything that isn't.
-    state._eraseFrame = (state._eraseFrame || 0) + 1;
-    if (state._eraseFrame % 90 === 0) {
-      ctx.clearRect(0, 0, w, h);
-    } else {
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = 'rgba(0,0,0,0.06)';
-      ctx.fillRect(0, 0, w, h);
-      ctx.restore();
+    // Trace control (kid chip): 'stays' skips this whole erase block --
+    // every visible pixel here comes from a bloom/detach redrawn from
+    // scratch each frame (see comment above), so with the erase skipped
+    // nothing is lost and the garden simply accumulates until Clear.
+    // 'fades' (default) is the pre-existing behavior, untouched.
+    if (state.traceMode !== 'stays') {
+      state._eraseFrame = (state._eraseFrame || 0) + 1;
+      if (state._eraseFrame % 90 === 0) {
+        ctx.clearRect(0, 0, w, h);
+      } else {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+      ctx.globalCompositeOperation = 'source-over';
     }
-    ctx.globalCompositeOperation = 'source-over';
 
     // update + prune blooms
     for (var i = state.blooms.length - 1; i >= 0; i--) {
@@ -699,7 +707,13 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
       // and we have room (or can make room) — cap concurrent blooms at 4
       // counting the about-to-be-planted child, so only propagate when the
       // total will not exceed MAX_BLOOMS after the oldest is retired.
-      if (b.matured && !b.propagated && !b.detach && !b.dissolving) {
+      // Trace control (kid chip): 'stays' skips this trigger entirely --
+      // a matured bloom simply completes and remains, never propagating a
+      // child or beginning its own reverse dissolve. MAX_BLOOMS still forces
+      // an oldest-first dissolve on the 5th plant via pointer()'s own
+      // capacity check further up (untouched, still bounded); this trigger
+      // is the only thing being gated.
+      if (state.traceMode !== 'stays' && b.matured && !b.propagated && !b.detach && !b.dissolving) {
         b.propagated = true;
         var open = findGardenSpot(state, b, w, h);
         var srcSeed = b.seeds[b.seeds.length - 1] || b.seeds[0];
@@ -947,6 +961,7 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
   function applyControl(state, kind, id) {
     if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
     if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+    if (kind === 'trace') { state.traceMode = (id === 'stays') ? 'stays' : 'fades'; return; }
     if (kind === 'mood') {
       var mood = findMood(id);
       state.moodId = mood.id;

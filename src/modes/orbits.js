@@ -270,7 +270,8 @@
         hasEverTouched: false,
         moodIdx: 0,          // index into MOODS; new particles sample this palette at spawn
         characterId: 'ellipse', // current character preset id; existing particles ease toward it
-        sizeMul: 1, sizeRandom: false
+        sizeMul: 1, sizeRandom: false,
+        traceMode: 'fades'   // kid-facing trace control: 'fades' (default) | 'stays'
       };
       return state;
     },
@@ -360,11 +361,16 @@
 
       // residue fix: erase toward TRUE transparency instead of painting a bg veil.
       // destination-out removes alpha from what's already there; source-over resumes drawing.
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = 'rgba(0,0,0,0.07)';
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = 'source-over';
+      // Trace control (kid chip): 'stays' skips this erase entirely so the
+      // firefly trails accumulate until Clear; 'fades' (default) is the
+      // pre-existing behavior, untouched.
+      if (state.traceMode !== 'stays') {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = 'rgba(0,0,0,0.07)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = 'source-over';
+      }
 
       // communal breathing factor ~0.05Hz +-5%
       var breathe = 1 + 0.05 * Math.sin(state.t * (Math.PI * 2 * 0.05) + state.breathePhase);
@@ -491,7 +497,12 @@
         if (pt.trailAccum >= TRAIL_SAMPLE_DT) {
           pt.trailAccum -= TRAIL_SAMPLE_DT;
           pt.trail.push({ x: pt.x, y: pt.y });
-          if (pt.trail.length > pt.trailLen) pt.trail.shift();
+          // Trace control (kid chip): 'stays' skips the trim below so trail
+          // points never age out of the buffer -- the firefly's path
+          // accumulates as a permanent thread instead of a short comet tail.
+          // The orbiter itself (pt.x/pt.y above) is a pattern actor and keeps
+          // orbiting completely unchanged either way.
+          if (state.traceMode !== 'stays' && pt.trail.length > pt.trailLen) pt.trail.shift();
         }
 
         var alpha = visLife;
@@ -613,6 +624,7 @@
     applyControl: function (state, kind, id) {
       if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
       if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+      if (kind === 'trace') { state.traceMode = (id === 'stays') ? 'stays' : 'fades'; return; }
       if (kind === 'mood') {
         for (var i = 0; i < MOODS.length; i++) {
           if (MOODS[i].id === id) { state.moodIdx = i; break; }

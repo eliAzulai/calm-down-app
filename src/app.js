@@ -640,6 +640,10 @@ const MODE_LABELS = {
   trails: 'Finger Trails', particles: 'Particles', ripples: 'Ripples',
   geometric: 'Geometric', drawing: 'Freeform',
 };
+// The five modes with a "trace" (fades vs stays) concept — echo/etch are
+// exempt because persistence IS their identity (nothing to toggle), and
+// legacy modes have no registry controls at all.
+const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph'];
 
 // --- Screen Navigation ---
 
@@ -848,6 +852,7 @@ function applySavedModeControls(mode) {
   if (saved.character) { try { V.applyControl(canvas.regState, 'character', saved.character); } catch (e) {} }
   if (saved.size) { try { V.applyControl(canvas.regState, 'size', saved.size); } catch (e) {} }
   if (saved.sizeRandom !== undefined) { try { V.applyControl(canvas.regState, 'sizeRandom', saved.sizeRandom); } catch (e) {} }
+  if (saved.trace) { try { V.applyControl(canvas.regState, 'trace', saved.trace); } catch (e) {} }
 }
 
 function registryModeError(mode, err) {
@@ -3038,6 +3043,7 @@ var $styleTray = document.getElementById('style-tray');
 var $styleMoods = document.getElementById('style-moods');
 var $styleChars = document.getElementById('style-chars');
 var $styleSize = document.getElementById('style-size');
+var $styleTrace = document.getElementById('style-trace');
 var $styleEmpty = document.getElementById('style-empty');
 var styleTrayOpen = false;
 
@@ -3047,11 +3053,12 @@ function renderStyleTray() {
   var $m = $styleMoods;
   var $c = $styleChars;
   var $s = $styleSize;
+  var $t = $styleTrace;
   var $e = $styleEmpty;
-  $m.textContent = ''; $c.textContent = ''; $s.textContent = '';
+  $m.textContent = ''; $c.textContent = ''; $s.textContent = ''; $t.textContent = '';
   if (!V) {
     // Legacy (non-registry) mode: no smart controls of any kind.
-    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $e.style.display = '';
+    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $t.style.display = 'none'; $e.style.display = '';
     return;
   }
   var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
@@ -3132,6 +3139,24 @@ function renderStyleTray() {
   } else {
     $s.style.display = 'none';
   }
+
+  // ---- Trace row (Task A6): fades vs stays -- ONLY for the five modes with
+  // a real veil/life-decay concept to toggle (TRACE_MODES). Echo/etch are
+  // exempt (persistence IS their identity, nothing to fade in the first
+  // place); legacy modes have no registry controls at all and never reach
+  // this far (see the `if (!V) { ...; return; }` guard above).
+  if (TRACE_MODES.indexOf(mode) >= 0) {
+    $t.style.display = 'flex';
+    var lbl4 = document.createElement('span'); lbl4.className = 'ctl-label'; lbl4.textContent = 'Trace'; $t.appendChild(lbl4);
+    [{ id: 'fades', name: 'Fades away' }, { id: 'stays', name: 'Stays until Clear' }].forEach(function (o, i) {
+      var b = document.createElement('button');
+      b.className = 'chip' + ((saved.trace ? saved.trace === o.id : i === 0) ? ' on' : '');
+      b.dataset.id = o.id; b.textContent = o.name;
+      $t.appendChild(b);
+    });
+  } else {
+    $t.style.display = 'none';
+  }
 }
 
 // Selection-sync WITHOUT rebuild — the sound panel's updateSoundUI pattern.
@@ -3152,6 +3177,10 @@ function updateStyleTraySelection() {
   var chips = document.querySelectorAll('#style-chars .chip');
   Array.prototype.forEach.call(chips, function (b) {
     b.classList.toggle('on', b.dataset.id === saved.character || (!saved.character && b === chips[0]));
+  });
+  var traceChips = document.querySelectorAll('#style-trace .chip');
+  Array.prototype.forEach.call(traceChips, function (b) {
+    b.classList.toggle('on', b.dataset.id === saved.trace || (!saved.trace && b === traceChips[0]));
   });
 }
 
@@ -3205,6 +3234,7 @@ function handleStyleControlClick(e, kind) {
 
 $styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });
 $styleChars.addEventListener('click', function (e) { handleStyleControlClick(e, 'character'); });
+$styleTrace.addEventListener('click', function (e) { handleStyleControlClick(e, 'trace'); });
 
 // Play/pause
 $btnPlayPause.addEventListener('click', togglePlayPause);

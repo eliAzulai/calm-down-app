@@ -293,6 +293,7 @@
     applyControl: function (state, kind, id) {
       if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
       if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+      if (kind === 'trace') { state.traceMode = (id === 'stays') ? 'stays' : 'fades'; return; }
       if (kind === 'mood') {
         if (!MOOD_RGB[id]) return;
         state.activeMoodId = id;
@@ -318,7 +319,8 @@
         frameCount: 0,
         activeMoodId: DEFAULT_MOOD,
         activeShapeSetId: DEFAULT_SHAPE_SET,
-        sizeMul: 1, sizeRandom: false
+        sizeMul: 1, sizeRandom: false,
+        traceMode: 'fades' // kid-facing trace control: 'fades' (default) | 'stays'
       };
       // seed idle ambient shape immediately so canvas feels alive pre-touch
       st.idleShape = makeShape(w * 0.3 + Math.random() * w * 0.4, h * 0.3 + Math.random() * h * 0.4, (70 + Math.random() * 30) * sizeFactor(st), false, st.activeShapeSetId, st.activeMoodId); // size control (kid slider)
@@ -368,14 +370,19 @@
       // reliably rounds any residual alpha down to exactly 0. The pulse is
       // imperceptible in practice (it only ever affects pixels already faded
       // to near-invisible) and at ~0.5s cadence is nowhere near a flash.
-      state.frameCount = (state.frameCount + 1) % VEIL_PULSE_EVERY;
-      var veilA = (state.frameCount === 0) ? VEIL_PULSE_ALPHA : VEIL_ALPHA;
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = 'rgba(0,0,0,' + veilA + ')';
-      ctx.fillRect(0, 0, w, h);
-      ctx.restore();
-      ctx.globalCompositeOperation = 'source-over';
+      // Trace control (kid chip): 'stays' skips this whole erase block
+      // (including the periodic pulse) so shapes accumulate until Clear;
+      // 'fades' (default) is the pre-existing behavior, untouched.
+      if (state.traceMode !== 'stays') {
+        state.frameCount = (state.frameCount + 1) % VEIL_PULSE_EVERY;
+        var veilA = (state.frameCount === 0) ? VEIL_PULSE_ALPHA : VEIL_ALPHA;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0,0,0,' + veilA + ')';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+        ctx.globalCompositeOperation = 'source-over';
+      }
 
       // update + draw touch-spawned shapes
       var i;
@@ -494,6 +501,21 @@
 
   function updateShape(s, dt, state) {
     s.age += dt;
+    // Trace control (kid chip) 'stays': once a shape reaches the start of
+    // its natural fade-out window (age >= life - FADE_EDGE), pin age there
+    // instead of letting it advance further. This freezes shapeEnvelope()'s
+    // fadeOutLin at exactly 1 (last fully-visible instant), so the shape
+    // keeps drawing at full alpha forever instead of dissolving, and never
+    // reaches age >= life so the natural-death splice in tick() never
+    // fires. `s.frozen` (set here, read by the morph-clock gate below)
+    // additionally locks the shape's CURRENT form so it truly freezes at
+    // its final form rather than continuing to cycle shapes forever. The
+    // MAX_SHAPES=24 cap (pointer()'s shift() on spawn) is untouched --
+    // that's the bounded, oldest-first path this freeze does NOT gate.
+    if (state && state.traceMode === 'stays') {
+      var frozenAge = s.life - FADE_EDGE;
+      if (s.age >= frozenAge) { s.age = frozenAge; s.frozen = true; }
+    }
 
     if (s.held) {
       s.holdTime += dt;
@@ -524,10 +546,12 @@
     // rotation, slow and constant-ish
     s.rot += s.rotSpeed * dt;
 
-    if (s.held) {
-      // Pause morph mid-form and breathe (+-3% scale @ ~0.1Hz) until release.
-      // morphT/formIdx are intentionally NOT advanced, so morph resumes exactly
-      // where it left off on release.
+    if (s.held || s.frozen) {
+      // Pause morph mid-form and breathe (+-3% scale @ ~0.1Hz) until release
+      // (s.held) or forever (s.frozen -- trace control 'stays', final form).
+      // morphT/formIdx are intentionally NOT advanced, so a held shape
+      // resumes exactly where it left off on release, and a frozen shape
+      // simply stays at whatever form it was morphing through/toward.
     } else {
       // advance morph clock; cycles through the active shape set's forms list
       // continuously.

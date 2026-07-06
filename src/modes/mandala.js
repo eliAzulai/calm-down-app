@@ -185,8 +185,23 @@
     };
   }
 
-  function updateSpark(sp, dt) {
+  // Trace control (kid chip) 'stays': once a spark has completed its bright
+  // hold window (age > SPARK_HOLD_SECONDS), clamp sp.life upward so it never
+  // falls behind sp.age -- this simultaneously (a) freezes fadeEnvelope's
+  // lifeT at a constant ratio (steady ~55% brightness, never dimming
+  // further) and (b) prevents the tick() cull (`sp.age >= sp.life`) from
+  // ever firing, so the spark simply never dies. FROZEN_LIFE_RATIO is the
+  // lifeT value that lands fadeEnvelope's alpha at ~0.55 of fresh (holdFrac
+  // is tiny relative to 1, so fadeT ~= lifeT beyond the hold; smoothstep at
+  // that fadeT gives the target alpha).
+  var FROZEN_LIFE_RATIO = 0.46; // 1 - smoothstep(0.46) ~= 0.56 fresh-brightness
+  function updateSpark(sp, dt, traceMode) {
     sp.age += dt;
+    if (traceMode === 'stays' && sp.age > SPARK_HOLD_SECONDS) {
+      // pin life so age/life never exceeds FROZEN_LIFE_RATIO past the hold --
+      // holds a steady readable brightness instead of continuing to fade.
+      sp.life = Math.max(sp.life, sp.age / FROZEN_LIFE_RATIO);
+    }
     // ease speed down slightly over life so nothing feels mechanical/linear
     var lifeT = sp.age / sp.life;
     var ease = 1 - lifeT * 0.5;
@@ -249,7 +264,8 @@
       symmetryId: defaultSymmetry.id,
       fold: defaultSymmetry.fold,
       maxSparks: defaultSymmetry.maxSparks,
-      sizeMul: 1, sizeRandom: false
+      sizeMul: 1, sizeRandom: false,
+      traceMode: 'fades'
     };
     buildBgSprite(state);
     return state;
@@ -374,11 +390,16 @@
     // bg color) so no residue can ever accumulate. destination-out erases
     // existing pixels' alpha; the canvas element's own CSS background shows
     // through wherever alpha hits 0.
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0,0,0,' + FADE_ALPHA + ')';
-    ctx.fillRect(0, 0, w, h);
-    ctx.restore(); // back to source-over for everything below
+    // Trace control (kid chip): 'stays' skips this erase entirely so the
+    // kaleidoscope trail accumulates until Clear; 'fades' (default) is the
+    // pre-existing behavior, untouched.
+    if (state.traceMode !== 'stays') {
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,' + FADE_ALPHA + ')';
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore(); // back to source-over for everything below
+    }
 
     // ---- hold gesture: continuous self-drawing spiral + gentle global spin
     var holdTargetSpin = 0;
@@ -426,7 +447,7 @@
     var sparks = state.sparks;
     for (var i = sparks.length - 1; i >= 0; i--) {
       var sp = sparks[i];
-      updateSpark(sp, dt);
+      updateSpark(sp, dt, state.traceMode); // trace control (kid chip): 'stays' freezes life below
       if (sp.age >= sp.life) sparks.splice(i, 1);
     }
 
@@ -515,6 +536,7 @@
   function applyControl(state, kind, id) {
     if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
     if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+    if (kind === 'trace') { state.traceMode = (id === 'stays') ? 'stays' : 'fades'; return; }
     if (kind === 'mood') {
       var mood = findMood(id);
       state.moodId = mood.id;

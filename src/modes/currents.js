@@ -217,7 +217,9 @@
         curl: CHARACTERS[1].curl, parallel: CHARACTERS[1].parallel, channel: CHARACTERS[1].channel
       },
       // ---- kid-facing smart controls: size ----
-      sizeMul: 1, sizeRandom: false
+      sizeMul: 1, sizeRandom: false,
+      // ---- kid-facing smart controls: trace ----
+      traceMode: 'fades'
     };
     for (var i = 0; i < MAX_MOTES; i++) state.motes.push(makeMote(w, h, state.liveMoodRgb));
     buildBgCache(state);
@@ -334,10 +336,15 @@
     // "movement afterglow" that lingered past the client's 1s hold budget).
     // Raised to 0.16 so the same ~1% floor is reached in ~26 frames / ~0.43s,
     // giving real margin under the 1s trace-hold ceiling even with overlap.
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0,0,0,0.16)';
-    ctx.fillRect(0, 0, w, h);
-    ctx.globalCompositeOperation = 'source-over';
+    // Trace control (kid chip): 'stays' skips this erase entirely so rivers
+    // freeze into painted trails until Clear; 'fades' (default) is the
+    // pre-existing behavior, untouched.
+    if (state.traceMode !== 'stays') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'source-over';
+    }
 
     // sparse ambient spawn to keep river alive without ever feeling busy
     if (state.particles.length < 60 && Math.random() < dt * 3) {
@@ -349,9 +356,19 @@
     var chr = state.character;
     var arr = state.particles;
     var write = 0;
+    // Trace control (kid chip) 'stays': once a particle has finished fading
+    // in (life >= FADE_IN_WINDOW, matching the fadeIn calc below), pin its
+    // life at that post-fade-in value so it never advances into the
+    // maxLife-tailWindow fade-out zone and never trips the maxLife drop --
+    // it simply freezes at full visible brightness, painting a permanent
+    // river, instead of dissolving.
+    var FADE_IN_WINDOW = 1.2; // matches `fadeIn = clamp(p.life / 1.2, 0, 1)` below
     for (var i = 0; i < arr.length; i++) {
       var p = arr[i];
       p.life += dt;
+      if (state.traceMode === 'stays' && p.life > FADE_IN_WINDOW) {
+        p.life = FADE_IN_WINDOW; // trace control (kid chip): freeze at full brightness
+      }
       if (p.life > p.maxLife) continue; // drop, don't keep
 
       var ang = fieldAngle(p.x, p.y, state.t, w, h, chr.curl, chr.parallel, chr.channel);
@@ -482,6 +499,7 @@
     if (!state) return;
     if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
     if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+    if (kind === 'trace') { state.traceMode = (id === 'stays') ? 'stays' : 'fades'; return; }
     if (kind === 'mood') {
       var mood = findMood(id);
       state.liveMoodId = mood.id;

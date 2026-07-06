@@ -242,6 +242,52 @@ await check('Size slider UI persists and applies via tray', async () => {
   return 'slider applied+persisted+signaled, tray open';
 });
 
+await check('Trace=stays persists mandala sparks; fades drains them', async () => {
+  await page.evaluate(() => { switchToMode(MODES.indexOf('mandala'), 'tray'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.CALM_MODES.get('mandala').applyControl(canvas.regState, 'trace', 'stays'));
+  const box = await page.locator('#main-canvas').boundingBox();
+  await page.mouse.move(box.x + 300, box.y + 300); await page.mouse.down();
+  for (let k = 0; k < 10; k++) { await page.mouse.move(box.x + 300 + k * 15, box.y + 300 + k * 8); await page.waitForTimeout(40); }
+  await page.mouse.up();
+  await page.waitForTimeout(5000);
+  const litStays = await page.evaluate(() => {
+    const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+    return n;
+  });
+  if (litStays < 5) throw new Error('stays did not persist: ' + litStays);
+  await page.evaluate(() => window.CALM_MODES.get('mandala').applyControl(canvas.regState, 'trace', 'fades'));
+  await page.waitForTimeout(5000);
+  const litFades = await page.evaluate(() => {
+    const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+    return n;
+  });
+  if (litFades >= Math.max(5, litStays / 3)) throw new Error(`fades did not drain: ${litStays} -> ${litFades}`);
+  return `stays=${litStays} fades=${litFades}`;
+});
+
+await check('Trace chip renders for the five, hidden for echo/etch, persists', async () => {
+  await page.click('#btn-style'); await page.waitForSelector('#style-tray.open');
+  let traceChips = await page.locator('#style-trace .chip').count();
+  if (traceChips !== 2) throw new Error('mandala trace chips=' + traceChips);
+  await page.click('#style-trace .chip[data-id="stays"]');
+  await page.waitForTimeout(300);
+  const prefs = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-prefs')));
+  if (!prefs.modeControls || !prefs.modeControls.mandala || prefs.modeControls.mandala.trace !== 'stays') throw new Error('not persisted');
+  const trayOpen = await page.evaluate(() => document.getElementById('style-tray').classList.contains('open'));
+  if (!trayOpen) throw new Error('tray closed on trace pick');
+  await page.evaluate(() => { switchToMode(MODES.indexOf('echo'), 'tray'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { renderStyleTray(); }); // tray open across switch re-renders; ensure explicit
+  const echoTrace = await page.evaluate(() => document.getElementById('style-trace').style.display);
+  if (echoTrace !== 'none') throw new Error('echo shows trace row: ' + echoTrace);
+  return 'chips + persistence + exemption OK';
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };
