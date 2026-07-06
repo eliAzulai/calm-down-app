@@ -288,6 +288,33 @@ await check('Trace chip renders for the five, hidden for echo/etch, persists', a
   return 'chips + persistence + exemption OK';
 });
 
+await check('Orbits stays-mode is bounded and accumulates ink', async () => {
+  // Previous check leaves the style tray open (top-right, four rows tall);
+  // close it so the canvas click below can't land on tray chrome.
+  const trayWasOpen = await page.evaluate(() => document.getElementById('style-tray').classList.contains('open'));
+  if (trayWasOpen) { await page.click('#btn-style'); await page.waitForTimeout(200); }
+  await page.evaluate(() => { switchToMode(MODES.indexOf('orbits'), 'tray'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.CALM_MODES.get('orbits').applyControl(canvas.regState, 'trace', 'stays'));
+  const box = await page.locator('#main-canvas').boundingBox();
+  await page.mouse.click(box.x + 350, box.y + 400); // plant anchor + orbiters
+  await page.waitForTimeout(8000); // let paths accumulate
+  const m = await page.evaluate(() => {
+    const st = canvas.regState;
+    const maxTrail = st.particles.length
+      ? Math.max.apply(null, st.particles.map(p => (p.trail && p.trail.length) || 0))
+      : 0;
+    const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+    return { maxTrail: maxTrail, lit: n, ink: !!st.inkCanvas };
+  });
+  if (!m.ink) throw new Error('no ink layer');
+  if (m.maxTrail > 12) throw new Error('trail buffer unbounded: ' + m.maxTrail);
+  if (m.lit < 20) throw new Error('no accumulated ink: ' + m.lit);
+  return `bounded (maxTrail=${m.maxTrail}) + ink lit=${m.lit}`;
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };

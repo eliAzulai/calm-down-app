@@ -168,6 +168,25 @@
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
+  // Persistent ink layer for trace 'stays' (Task A6 fix): a single w x h
+  // offscreen canvas that live orbiters stamp tiny marks into each frame.
+  // Bounded by construction -- one fixed-size bitmap, never a growing
+  // array -- and composited onto the main canvas in O(1) via drawImage.
+  // Mirrors Echo's validated stamp-canvas pattern, including its resize
+  // convention: on dimension change the layer is recreated FRESH (content
+  // not preserved -- acceptable per spec, same note as echo.js's resize).
+  function ensureInkLayer(state, w, h) {
+    var iw = Math.max(1, Math.round(w));
+    var ih = Math.max(1, Math.round(h));
+    if (state.inkCanvas && state.inkCanvas.width === iw && state.inkCanvas.height === ih) return;
+    var off = document.createElement('canvas');
+    off.width = iw;
+    off.height = ih;
+    state.inkCanvas = off;
+    state.inkCtx = off.getContext('2d');
+    state.inkDirty = false;
+  }
+
   function makeAnchor(x, y) {
     return {
       x: x, y: y,
@@ -271,7 +290,13 @@
         moodIdx: 0,          // index into MOODS; new particles sample this palette at spawn
         characterId: 'ellipse', // current character preset id; existing particles ease toward it
         sizeMul: 1, sizeRandom: false,
-        traceMode: 'fades'   // kid-facing trace control: 'fades' (default) | 'stays'
+        traceMode: 'fades',  // kid-facing trace control: 'fades' (default) | 'stays'
+        // Persistent ink layer for trace 'stays' (Echo's validated stamp-
+        // canvas pattern): lazily created the first frame 'stays' is active
+        // (see ensureInkLayer), so 'fades'-only sessions never pay for it.
+        // Clear/mode-switch reset for free: app-side re-init returns a fresh
+        // state with these null again.
+        inkCanvas: null, inkCtx: null, inkDirty: false
       };
       return state;
     },
@@ -361,10 +386,30 @@
 
       // residue fix: erase toward TRUE transparency instead of painting a bg veil.
       // destination-out removes alpha from what's already there; source-over resumes drawing.
-      // Trace control (kid chip): 'stays' skips this erase entirely so the
-      // firefly trails accumulate until Clear; 'fades' (default) is the
-      // pre-existing behavior, untouched.
-      if (state.traceMode !== 'stays') {
+      // Trace control (kid chip) 'stays': Echo's validated ink-layer pattern
+      // instead of a veil skip. The main canvas is FULLY cleared every frame
+      // (live orbiters stay crisp -- their own dots never smear), then the
+      // persistent ink layer -- where each orbiter stamps one tiny mark per
+      // frame (see the stamp site in the particle loop) -- composites under
+      // them in O(1) via drawImage, regardless of how much ink has
+      // accumulated. Memory and per-frame cost stay constant no matter how
+      // long the kid plays. 'fades' (default) is the pre-existing veil,
+      // untouched; returning to 'fades' clears the ink so traces drain
+      // normally under the veil.
+      if (state.traceMode === 'stays') {
+        ensureInkLayer(state, w, h);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(state.inkCanvas, 0, 0);
+      } else {
+        if (state.inkCtx && state.inkDirty) {
+          // Just returned from 'stays': drop the accumulated ink. The main
+          // canvas still holds last frame's composite, which the veil below
+          // now drains normally -- the visible "fades" hand-off.
+          state.inkCtx.clearRect(0, 0, state.inkCanvas.width, state.inkCanvas.height);
+          state.inkDirty = false;
+        }
         ctx.globalCompositeOperation = 'destination-out';
         ctx.globalAlpha = 1;
         ctx.fillStyle = 'rgba(0,0,0,0.07)';
@@ -497,12 +542,13 @@
         if (pt.trailAccum >= TRAIL_SAMPLE_DT) {
           pt.trailAccum -= TRAIL_SAMPLE_DT;
           pt.trail.push({ x: pt.x, y: pt.y });
-          // Trace control (kid chip): 'stays' skips the trim below so trail
-          // points never age out of the buffer -- the firefly's path
-          // accumulates as a permanent thread instead of a short comet tail.
-          // The orbiter itself (pt.x/pt.y above) is a pattern actor and keeps
-          // orbiting completely unchanged either way.
-          if (state.traceMode !== 'stays' && pt.trail.length > pt.trailLen) pt.trail.shift();
+          // ALWAYS trimmed to the normal cap, in BOTH trace modes: 'stays'
+          // persistence lives in the bounded ink layer (see ensureInkLayer),
+          // never in a growing per-particle buffer -- an untrimmed trail
+          // array grows ~22 points/sec/orbiter forever (memory + per-frame
+          // draw cost explosion over exactly the long calm sessions this
+          // app is for).
+          if (pt.trail.length > pt.trailLen) pt.trail.shift();
         }
 
         var alpha = visLife;
@@ -523,9 +569,28 @@
             big: buildGlowSprite(col, bigR, 0.20),
             small: buildGlowSprite(col, smallR * 1.8, 0.9),
             trail: buildGlowSprite(col, Math.max(2.4, smallR * 1.1), 0.75),
-            color: col
+            color: col,
+            // pre-built fillStyle string for ink stamping (trace 'stays') --
+            // avoids rebuilding the rgb() string per orbiter per frame.
+            ink: 'rgb(' + Math.round(col[0]) + ',' + Math.round(col[1]) + ',' + Math.round(col[2]) + ')'
           };
           sprites[key] = spr;
+        }
+
+        // Trace control (kid chip) 'stays': lay ONE tiny permanent mark per
+        // frame into the ink layer at the orbiter's current position -- the
+        // accumulated marks ARE the persistent trace (the main canvas is
+        // fully cleared each frame, see the composite at the top of tick).
+        // Cheap: <= MAX_PARTICLES small fills/frame; scaled by the
+        // particle's own visible alpha so dispersing fireflies lay
+        // progressively fainter ink instead of hard dots.
+        if (state.traceMode === 'stays' && state.inkCtx) {
+          state.inkCtx.globalAlpha = 0.35 * alpha;
+          state.inkCtx.fillStyle = spr.ink;
+          state.inkCtx.beginPath();
+          state.inkCtx.arc(pt.x, pt.y, 1.5, 0, Math.PI * 2);
+          state.inkCtx.fill();
+          state.inkDirty = true;
         }
 
         // draw short fading trail first (threads of light), oldest -> newest, alpha to true zero
