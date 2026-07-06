@@ -632,13 +632,13 @@ function saveNewProfile() {
 
 // --- Canvas Visual Modes ---
 
-const MODES = ['trails', 'particles', 'ripples', 'geometric', 'drawing'];
+const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch',
+               'trails', 'particles', 'ripples', 'geometric', 'drawing'];
 const MODE_LABELS = {
-  trails: 'Finger Trails',
-  particles: 'Particles',
-  ripples: 'Ripples',
-  geometric: 'Geometric',
-  drawing: 'Freeform',
+  echo: 'Echo', currents: 'Currents', orbits: 'Orbits', mandala: 'Mandala',
+  bloom: 'Bloom', morph: 'Morph', etch: 'Etch',
+  trails: 'Finger Trails', particles: 'Particles', ripples: 'Ripples',
+  geometric: 'Geometric', drawing: 'Freeform',
 };
 
 // --- Screen Navigation ---
@@ -648,7 +648,13 @@ function enterProfile(profile) {
   state.activeProfileId = profile.id;
   var devControl = getProfileDevControl(profile.id);
   var defaultModeIndex = MODES.indexOf(devControl.defaultMode);
-  state.canvasMode = defaultModeIndex >= 0 ? defaultModeIndex : 0;
+  // DECISION (Task A2): the shipping default experience stays 'trails' even
+  // though MODES[0] is now 'echo' (registry modes lead the ring so tray/tests
+  // treat them as first-class). Without a dev-set default, fall back to
+  // trails explicitly rather than index 0, preserving what kids see today;
+  // the new registry modes are reachable via double-tap cycling or the mode
+  // tray. Revisit once the observation cycle (Task A-later) has data.
+  state.canvasMode = defaultModeIndex >= 0 ? defaultModeIndex : MODES.indexOf('trails');
 
   // Apply theme to canvas screen
   $screenCanvas.classList.remove('theme-ocean', 'theme-sunset', 'theme-forest', 'theme-neon', 'theme-mono');
@@ -659,6 +665,7 @@ function enterProfile(profile) {
   canvas.accentRGB = hexToRGB(theme.accent);
   canvas.secondaryRGB = hexToRGB(theme.secondary);
   canvas.drawColor = canvas.accentRGB;
+  canvas.regState = null; canvas.regId = null;
 
   $screenProfiles.classList.remove('active');
   $screenCanvas.classList.add('active');
@@ -737,6 +744,9 @@ var canvas = {
   scale: 1,
   pinchStartDist: 0,
   pinchStartScale: 1,
+  // Registry mode state (Task A2 dispatcher integration)
+  regState: null,
+  regId: null,
 };
 
 var signalSession = {
@@ -780,6 +790,45 @@ function resizeCanvas() {
   canvas.ctx.setTransform(canvas.dpr, 0, 0, canvas.dpr, 0, 0);
 }
 
+// --- Registry Mode Dispatch (Task A2) ---
+//
+// canvas.width/canvas.height are already CSS pixels here — resizeCanvas()
+// (below) sets canvas.width = window.innerWidth / canvas.height =
+// window.innerHeight, then scales the *DOM element's* backing store
+// ($mainCanvas.width/height) by canvas.dpr and applies ctx.setTransform(dpr,
+// ...) so every ctx drawing call already operates in CSS-pixel space. Only
+// $mainCanvas.width/height (the element's own properties, never read outside
+// resizeCanvas) hold device pixels. So ensureRegState below passes
+// canvas.width/canvas.height straight through — no dpr conversion needed —
+// and tickCanvas's local w/h (assigned from canvas.width/height a few lines
+// down) are the same CSS-pixel values the legacy render* functions already
+// consume, so registry modes and legacy modes share one coordinate space.
+
+function isRegistryMode(mode) {
+  return !!(window.CALM_MODES && window.CALM_MODES.get(mode));
+}
+
+function ensureRegState(mode) {
+  if (canvas.regId === mode && canvas.regState) return canvas.regState;
+  var V = window.CALM_MODES.get(mode);
+  canvas.regState = V.init(canvas.width, canvas.height, {
+    accent: canvas.accentRGB, secondary: canvas.secondaryRGB, bg: '#0d1b2a',
+  });
+  canvas.regId = mode;
+  applySavedModeControls(mode);
+  return canvas.regState;
+}
+
+function applySavedModeControls(mode) {} // stub — populated in Task A4
+
+function registryModeError(mode, err) {
+  recordSignal('mode_error', { mode: mode, message: String(err).slice(0, 120) });
+  canvas.regState = null; canvas.regId = null;
+  var fallback = MODES.indexOf('trails');
+  if (fallback >= 0) state.canvasMode = fallback;
+  showModeIndicator();
+}
+
 // --- Canvas Render Loop ---
 
 function tickCanvas(now) {
@@ -796,25 +845,34 @@ function tickCanvas(now) {
   var h = canvas.height;
   var mode = MODES[state.canvasMode];
 
-  // Semi-transparent clear for trail persistence
-  if (mode === 'trails') {
+  if (isRegistryMode(mode)) {
+    try {
+      var rs = ensureRegState(mode);
+      var V = window.CALM_MODES.get(mode);
+      V.tick(rs, ctx, dt, w, h);
+      if (V.idle) V.idle(rs, w, h, dt);
+    } catch (err) {
+      registryModeError(mode, err);
+    }
+  } else if (mode === 'trails') {
     ctx.fillStyle = 'rgba(13, 27, 42, 0.03)';
     ctx.fillRect(0, 0, w, h);
+    renderTrails(ctx, dt);
   } else if (mode === 'drawing') {
-    // Drawing mode: no fade — strokes persist fully
+    renderDrawing(ctx);
   } else if (mode === 'geometric') {
     ctx.fillStyle = 'rgba(13, 27, 42, 0.04)';
     ctx.fillRect(0, 0, w, h);
-  } else {
+    renderGeometric(ctx, dt, w, h);
+  } else if (mode === 'particles') {
     ctx.fillStyle = 'rgba(13, 27, 42, 0.15)';
     ctx.fillRect(0, 0, w, h);
+    renderParticles(ctx, dt, w, h);
+  } else if (mode === 'ripples') {
+    ctx.fillStyle = 'rgba(13, 27, 42, 0.15)';
+    ctx.fillRect(0, 0, w, h);
+    renderRipples(ctx, dt, w, h);
   }
-
-  if (mode === 'trails') renderTrails(ctx, dt);
-  else if (mode === 'particles') renderParticles(ctx, dt, w, h);
-  else if (mode === 'ripples') renderRipples(ctx, dt, w, h);
-  else if (mode === 'geometric') renderGeometric(ctx, dt, w, h);
-  else if (mode === 'drawing') renderDrawing(ctx);
 
   canvas.animId = requestAnimationFrame(tickCanvas);
 }
@@ -1111,9 +1169,12 @@ $mainCanvas.addEventListener('pointerdown', function(e) {
   queueTouchSignal();
 
   var mode = MODES[state.canvasMode];
-  if (mode === 'particles') spawnParticles(x, y, 8);
-  if (mode === 'ripples') addRipple(x, y);
-  if (mode === 'geometric') addShape(x, y);
+  if (isRegistryMode(mode)) {
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), x, y, 'down'); } catch (err) { registryModeError(mode, err); }
+  }
+  if (!isRegistryMode(mode) && mode === 'particles') spawnParticles(x, y, 8);
+  if (!isRegistryMode(mode) && mode === 'ripples') addRipple(x, y);
+  if (!isRegistryMode(mode) && mode === 'geometric') addShape(x, y);
 
   // Double-tap detection
   var now = Date.now();
@@ -1150,10 +1211,13 @@ $mainCanvas.addEventListener('pointermove', function(e) {
   touch.y = e.clientY;
 
   var mode = MODES[state.canvasMode];
-  if (mode === 'trails') addTrailPoint(touch.x, touch.y, touch.prevX, touch.prevY);
-  if (mode === 'ripples' && Math.random() < 0.15) addRipple(touch.x, touch.y);
-  if (mode === 'geometric' && Math.random() < 0.2) addShape(touch.x, touch.y);
-  if (mode === 'drawing') addDrawPoint(touch.x, touch.y, touch.prevX, touch.prevY);
+  if (isRegistryMode(mode)) {
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'move'); } catch (err) { registryModeError(mode, err); }
+  }
+  if (!isRegistryMode(mode) && mode === 'trails') addTrailPoint(touch.x, touch.y, touch.prevX, touch.prevY);
+  if (!isRegistryMode(mode) && mode === 'ripples' && Math.random() < 0.15) addRipple(touch.x, touch.y);
+  if (!isRegistryMode(mode) && mode === 'geometric' && Math.random() < 0.2) addShape(touch.x, touch.y);
+  if (!isRegistryMode(mode) && mode === 'drawing') addDrawPoint(touch.x, touch.y, touch.prevX, touch.prevY);
 
   // Pinch zoom
   var touchKeys = Object.keys(canvas.touches);
@@ -1168,6 +1232,11 @@ $mainCanvas.addEventListener('pointermove', function(e) {
 });
 
 $mainCanvas.addEventListener('pointerup', function(e) {
+  var touch = canvas.touches[e.pointerId];
+  var mode = MODES[state.canvasMode];
+  if (touch && isRegistryMode(mode)) {
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'up'); } catch (err) { registryModeError(mode, err); }
+  }
   delete canvas.touches[e.pointerId];
 });
 
@@ -1188,6 +1257,13 @@ function cycleMode() {
   canvas.ripples = [];
   canvas.shapes = [];
   canvas.drawPaths = [];
+  // Invalidate registry mode state so the next tick lazily re-inits via
+  // ensureRegState — covers both directions (into AND out of a registry
+  // mode; clearCanvasFull() below only re-inits when landing ON a registry
+  // mode, so without this line leftover regState/regId from the mode we're
+  // leaving would linger, harmlessly but incorrectly, while a legacy mode
+  // is active).
+  canvas.regState = null; canvas.regId = null;
   // Set drawing color from current accent
   canvas.drawColor = canvas.accentRGB;
   clearCanvasFull();
@@ -1264,6 +1340,11 @@ function clearCanvasFull() {
   canvas.ctx.fillStyle = '#0d1b2a';
   canvas.ctx.fillRect(0, 0, $mainCanvas.width, $mainCanvas.height);
   canvas.ctx.restore();
+
+  if (isRegistryMode(MODES[state.canvasMode])) {
+    canvas.regState = null; canvas.regId = null;
+    ensureRegState(MODES[state.canvasMode]);
+  }
 }
 
 // --- Gentle Prompt ---

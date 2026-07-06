@@ -46,8 +46,51 @@ await check('SW precaches mode files at v3', async () => {
   return 'v3 + 8 files';
 });
 
-await check('No console errors', async () => {
-  if (consoleErrors.length) throw new Error(consoleErrors[0]);
+await check('New modes render pixels via double-tap cycling', async () => {
+  // ADAPTATION: the plan's dblclick target (box.x+60, box.y+60) lands inside
+  // #btn-back (rect x:24 y:24 w:48 h:48 -> covers 24-72 on both axes at this
+  // viewport), so those events never reach #main-canvas at all. Verified via
+  // elementFromPoint(60,60) === #btn-back in a throwaway probe. Reusing the
+  // same (200,300) point the drag already uses is inside the canvas with no
+  // chrome overlap (confirmed via elementFromPoint(200,300) === #main-canvas)
+  // and doesn't fight the drag, since the double-tap always runs AFTER the
+  // drag/up for that same mode has completed.
+  const results = {};
+  for (let i = 0; i < 12; i++) {
+    const mode = await page.evaluate(() => MODES[state.canvasMode]);
+    const box = await page.locator('#main-canvas').boundingBox();
+    await page.mouse.move(box.x + 200, box.y + 300); await page.mouse.down();
+    for (let k = 0; k < 8; k++) { await page.mouse.move(box.x + 200 + k * 30, box.y + 300 + k * 12); await page.waitForTimeout(40); }
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    results[mode] = await page.evaluate(() => {
+      const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+      const d = x.getImageData(0, 0, c.width, c.height).data;
+      let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+      return n;
+    });
+    await page.mouse.dblclick(box.x + 200, box.y + 300);
+    await page.waitForTimeout(350);
+  }
+  const dead = Object.entries(results).filter(([, n]) => n < 3).map(([m]) => m);
+  if (dead.length) throw new Error('dead modes: ' + dead.join(',') + ' ' + JSON.stringify(results));
+  return Object.keys(results).length + ' modes alive';
+});
+
+await check('Mode error isolation falls back to trails', async () => {
+  await page.evaluate(() => {
+    window.VARIANTS.morph.tick = function () { throw new Error('boom'); };
+    state.canvasMode = MODES.indexOf('morph');
+  });
+  await page.waitForTimeout(400);
+  const mode = await page.evaluate(() => MODES[state.canvasMode]);
+  if (mode !== 'trails') throw new Error('no fallback, mode=' + mode);
+  return 'fell back to trails';
+});
+
+await check('No console errors (excluding intentional sabotage)', async () => {
+  const unexpected = consoleErrors.filter(e => !e.includes('boom'));
+  if (unexpected.length) throw new Error(unexpected[0]);
   return 'clean';
 });
 

@@ -11,7 +11,7 @@
 // re-filters window.VARIANTS on every read, so it's correct regardless of how
 // many mode files have registered by the time app.js first reads it.
 //
-// app.js consumes: CALM_MODES.list, CALM_MODES.get(id),
+// app.js consumes CALM_MODES.get(id); .list serves tests and tray UIs.
 // and the shared CALM_VIS energy feed (populated by app.js audio code).
 
 window.VARIANTS = window.VARIANTS || {};

@@ -150,13 +150,23 @@ function log(check, pass, detail) {
   const modeDrawing = await page.$eval('#mode-indicator', el => el.textContent);
   log('Double-tap cycles to Freeform', modeDrawing === 'Freeform', modeDrawing);
 
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(100);
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(400);
+  // AUTHORIZED REFRESH (Task A2): the ring grew from 5 legacy modes to 12
+  // (7 registry modes + the original 5), and the default kid-facing entry
+  // mode stays 'trails' (see enterProfile decision in src/app.js) even
+  // though MODES[0] is now 'echo'. From trails we've already double-tapped
+  // 4 times above (-> Particles, Ripples, Geometric, Freeform), so 8 more
+  // taps complete the full 12-mode lap and land back on Finger Trails:
+  // Freeform -> Echo -> Currents -> Orbits -> Mandala -> Bloom -> Morph ->
+  // Etch -> Finger Trails.
+  for (let i = 0; i < 8; i++) {
+    await page.mouse.click(400, 500);
+    await page.waitForTimeout(100);
+    await page.mouse.click(400, 500);
+    await page.waitForTimeout(400);
+  }
 
   const modeWrapped = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Modes wrap back to Finger Trails after 5 modes', modeWrapped === 'Finger Trails', modeWrapped);
+  log('Modes wrap back to Finger Trails after 12 modes', modeWrapped === 'Finger Trails', modeWrapped);
 
   // CHECK 8: Clear button exists and works
   const clearBtn = await page.$('#btn-clear');

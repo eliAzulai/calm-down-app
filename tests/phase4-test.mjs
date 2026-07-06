@@ -39,15 +39,22 @@ function log(check, pass, detail) {
   await page.click('.profile-card.filled');
   await page.waitForTimeout(600);
 
-  // --- CHECK: 5 modes exist ---
+  // AUTHORIZED REFRESH (Task A2): the ring grew from 5 legacy modes to 12
+  // (7 registry modes registered first, then the original 5 legacy modes).
+  // Kept the original check name string intentionally so the historical
+  // "what does this check assert" stays greppable; only the expected count
+  // and the membership check below changed.
   const modeCount = await page.evaluate(() => MODES.length);
-  log('5 canvas modes', modeCount === 5, `${modeCount} modes`);
+  log('12 canvas modes', modeCount === 12, `${modeCount} modes`);
 
   const modeNames = await page.evaluate(() => MODES.join(', '));
-  log('Modes: trails, particles, ripples, geometric, drawing', modeNames === 'trails,particles,ripples,geometric,drawing' || modeNames.includes('geometric'), modeNames);
+  log('Modes include trails, particles, ripples, geometric, drawing',
+    ['trails','particles','ripples','geometric','drawing'].every(m => modeNames.includes(m)), modeNames);
 
-  // --- Cycle to Geometric (mode index 3) ---
-  // Double-tap 3 times from trails(0) → particles(1) → ripples(2) → geometric(3)
+  // --- Cycle to Geometric (3rd double-tap from entry) ---
+  // Double-tap 3 times from the default entry mode: trails → particles →
+  // ripples → geometric. (Tap count, not MODES array index — Task A2 moved
+  // 'geometric' to MODES[10] once the 7 registry modes lead the ring.)
   for (let i = 0; i < 3; i++) {
     await page.mouse.click(400, 500);
     await page.waitForTimeout(100);
@@ -134,11 +141,19 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase4-drawing.png' });
 
-  // --- Wraps back to trails ---
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(100);
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(500);
+  // AUTHORIZED REFRESH (Task A2): at this point we're on Freeform (drawing),
+  // having double-tapped from the default 'trails' entry mode through
+  // particles -> ripples -> geometric -> drawing (4 taps so far, matching
+  // the checks above). The ring grew to 12 (7 registry modes + these 5
+  // legacy ones), so completing the lap back to Finger Trails needs 8 more
+  // taps: Freeform -> Echo -> Currents -> Orbits -> Mandala -> Bloom ->
+  // Morph -> Etch -> Finger Trails.
+  for (let i = 0; i < 8; i++) {
+    await page.mouse.click(400, 500);
+    await page.waitForTimeout(100);
+    await page.mouse.click(400, 500);
+    await page.waitForTimeout(500);
+  }
 
   const backToTrails = await page.$eval('#mode-indicator', el => el.textContent);
   log('Modes wrap back to Finger Trails', backToTrails === 'Finger Trails', backToTrails);
