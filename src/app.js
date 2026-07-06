@@ -788,6 +788,10 @@ function resizeCanvas() {
   $mainCanvas.width = canvas.width * canvas.dpr;
   $mainCanvas.height = canvas.height * canvas.dpr;
   canvas.ctx.setTransform(canvas.dpr, 0, 0, canvas.dpr, 0, 0);
+  // Registry modes intentionally NOT invalidated on resize: each mode
+  // self-heals via the fresh w/h passed to tick() every frame (echo alone
+  // resets its stamp archive, by its own documented design). Convention
+  // locked by the phase10 rotation test — new modes must track w/h in tick.
 }
 
 // --- Registry Mode Dispatch (Task A2) ---
@@ -1246,11 +1250,17 @@ $mainCanvas.addEventListener('pointercancel', function(e) {
 
 // --- Mode Cycling ---
 
-function cycleMode() {
+// Shared by double-tap cycling AND the mode tray so both entry points wipe
+// state and record signals identically. `via` is 'doubletap' or 'tray' —
+// recorded on the additive mode_select signal only; recordModeChange's own
+// mode_end/mode_cycle/mode_start + signalSession.mode bookkeeping (the data
+// the observation cycle depends on) runs exactly the same either way.
+function switchToMode(index, via) {
   var previousMode = MODES[state.canvasMode];
-  state.canvasMode = (state.canvasMode + 1) % MODES.length;
+  state.canvasMode = index;
   var nextMode = MODES[state.canvasMode];
   recordModeChange(previousMode, nextMode);
+  recordSignal('mode_select', { mode: nextMode, via: via });
   // Clear current effects for clean transition
   canvas.trails = [];
   canvas.particles = [];
@@ -1268,6 +1278,10 @@ function cycleMode() {
   canvas.drawColor = canvas.accentRGB;
   clearCanvasFull();
   showModeIndicator();
+}
+
+function cycleMode() {
+  switchToMode((state.canvasMode + 1) % MODES.length, 'doubletap');
 }
 
 function showModeIndicator() {
@@ -2891,6 +2905,54 @@ $musicOptions.addEventListener('click', function(e) {
   var btn = e.target.closest('.sound-option');
   if (!btn) return;
   playMusic(btn.dataset.music);
+});
+
+// --- Mode Tray Toggle (Task A3) ---
+
+var $btnModes = document.getElementById('btn-modes');
+var $modeTray = document.getElementById('mode-tray');
+var $modeOptions = document.getElementById('mode-options');
+var modeTrayOpen = false;
+
+function renderModeOptions() {
+  $modeOptions.textContent = '';
+  MODES.forEach(function (id) {
+    var btn = document.createElement('button');
+    btn.className = 'mode-option' + (MODES[state.canvasMode] === id ? ' selected' : '');
+    btn.dataset.mode = id;
+    btn.textContent = MODE_LABELS[id];
+    $modeOptions.appendChild(btn);
+  });
+}
+
+$btnModes.addEventListener('click', function(e) {
+  e.stopPropagation();
+  modeTrayOpen = !modeTrayOpen;
+  $modeTray.classList.toggle('open', modeTrayOpen);
+  $btnModes.classList.toggle('active', modeTrayOpen);
+  if (modeTrayOpen) renderModeOptions();
+});
+
+// Close tray on outside click
+document.addEventListener('click', function(e) {
+  if (modeTrayOpen && !$modeTray.contains(e.target) && e.target !== $btnModes) {
+    modeTrayOpen = false;
+    $modeTray.classList.remove('open');
+    $btnModes.classList.remove('active');
+  }
+});
+
+// Mode option click
+$modeOptions.addEventListener('click', function(e) {
+  var btn = e.target.closest('.mode-option');
+  if (!btn) return;
+  var index = MODES.indexOf(btn.dataset.mode);
+  if (index < 0) return;
+  switchToMode(index, 'tray');
+  modeTrayOpen = false;
+  $modeTray.classList.remove('open');
+  $btnModes.classList.remove('active');
+  renderModeOptions();
 });
 
 // Play/pause

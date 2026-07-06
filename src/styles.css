@@ -511,7 +511,7 @@ html, body {
   pointer-events: auto;
 }
 
-#btn-back, #btn-clear, #btn-sound {
+#btn-back, #btn-clear, #btn-sound, #btn-modes {
   position: absolute;
   top: calc(var(--space-lg) + env(safe-area-inset-top, 0));
   width: 48px;
@@ -538,7 +538,7 @@ html, body {
   right: calc(var(--space-lg) + env(safe-area-inset-right, 0));
 }
 
-#btn-back:active, #btn-clear:active, #btn-sound:active {
+#btn-back:active, #btn-clear:active, #btn-sound:active, #btn-modes:active {
   transform: scale(0.93);
   background: rgba(255, 255, 255, 0.06);
 }
@@ -549,6 +549,20 @@ html, body {
 }
 
 #btn-sound.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* --- Mode Button & Tray ---
+   Corner cluster grows leftward from the right edge in 56px slots
+   (48px button + 8px gap): btn-clear (0), btn-sound (56px), btn-modes
+   (112px) — third slot, sits beside btn-sound with no overlap. */
+#btn-modes {
+  right: calc(var(--space-lg) + 112px + env(safe-area-inset-right, 0));
+}
+
+#btn-modes.active {
   background: var(--accent-dim);
   border-color: var(--accent);
   color: var(--accent);
@@ -576,6 +590,39 @@ html, body {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;
+}
+
+/* #mode-tray reuses .sound-panel's look (same corner-menu convention) but
+   anchors lower than #sound-panel so the two trays don't collide if a kid
+   opens both in quick succession — #sound-panel's own content (music +
+   sounds + controls) can run well past 500px tall, so a horizontal-only
+   split isn't reliable at this cluster's width; dropping the tray below
+   that is. Both close on any outside click regardless. */
+#mode-tray {
+  right: calc(var(--space-lg) + env(safe-area-inset-right, 0));
+  top: calc(var(--space-lg) + 56px + 560px + env(safe-area-inset-top, 0));
+  min-width: 264px;
+}
+
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.mode-option {
+  min-height: 48px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mode-option.selected {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .sound-options {

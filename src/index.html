@@ -83,6 +83,13 @@
         <input type="range" id="volume-slider" class="volume-slider" min="0" max="100" value="50" aria-label="Volume">
       </div>
     </div>
+    <button id="btn-modes" aria-label="Visual modes">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="2" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="2" y="11" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="11" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+    <div id="mode-tray" class="sound-panel">
+      <div class="sound-section-label">Visuals</div>
+      <div class="mode-options" id="mode-options"></div>
+    </div>
     <div id="mode-indicator" class="mode-indicator" aria-live="polite"></div>
     <!-- Gentle Prompt Orb -->
     <div id="gentle-orb" class="gentle-orb" role="button" aria-label="Try a calming exercise"></div>

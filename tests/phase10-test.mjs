@@ -77,6 +77,44 @@ await check('New modes render pixels via double-tap cycling', async () => {
   return Object.keys(results).length + ' modes alive';
 });
 
+await check('Mode tray opens and lists 12 modes', async () => {
+  await page.click('#btn-modes');
+  await page.waitForSelector('#mode-tray.open');
+  const n = await page.locator('#mode-options .mode-option').count();
+  if (n !== 12) throw new Error('modes=' + n);
+  return '12 chips';
+});
+
+await check('Tray selects a mode and records signal', async () => {
+  await page.click('#mode-options .mode-option[data-mode="bloom"]');
+  await page.waitForTimeout(300);
+  const mode = await page.evaluate(() => MODES[state.canvasMode]);
+  if (mode !== 'bloom') throw new Error('mode=' + mode);
+  const events = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-signals')) || []);
+  if (!events.some(e => e.type === 'mode_select' && e.payload.mode === 'bloom' && e.payload.via === 'tray')) throw new Error('no tray signal');
+  return 'bloom via tray';
+});
+
+await check('Rotation preserves registry-mode state convention', async () => {
+  // Lock the A2-review convention: modes self-heal on resize via per-frame w/h;
+  // rotation must NOT wipe non-echo mode state (bloom garden survives).
+  await page.evaluate(() => { state.canvasMode = MODES.indexOf('bloom'); });
+  const box = await page.locator('#main-canvas').boundingBox();
+  await page.mouse.click(box.x + 300, box.y + 400); // plant a bloom
+  await page.waitForTimeout(2500);
+  const before = await page.evaluate(() => canvas.regState && canvas.regState.blooms && canvas.regState.blooms.length);
+  await page.setViewportSize({ width: 1024, height: 768 }); // rotate
+  await page.waitForTimeout(800);
+  const after = await page.evaluate(() => ({
+    blooms: canvas.regState && canvas.regState.blooms && canvas.regState.blooms.length,
+    errors: window.__pageErrors ? window.__pageErrors.length : 0,
+  }));
+  await page.setViewportSize({ width: 768, height: 1024 }); // rotate back
+  await page.waitForTimeout(500);
+  if (!before || !after.blooms || after.blooms < before) throw new Error(`blooms ${before} -> ${after.blooms}`);
+  return `garden survived rotation (${before} blooms)`;
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };
