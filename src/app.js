@@ -3056,6 +3056,27 @@ function renderStyleTray() {
   });
 }
 
+// Selection-sync WITHOUT rebuild — the sound panel's updateSoundUI pattern.
+// The control click handler must NOT call renderStyleTray(): its teardown
+// (textContent = '') detaches the clicked button while the click is still
+// bubbling, so the document-level outside-click closer would see a detached
+// e.target, fail the $styleTray.contains() test, and close the tray on
+// every selection. renderStyleTray() (full rebuild) is reserved for tray
+// OPEN and for mode switches while open; this class-toggle-only sync is
+// what selection uses.
+function updateStyleTraySelection() {
+  var mode = MODES[state.canvasMode];
+  var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
+  var swatches = document.querySelectorAll('#style-moods .swatch');
+  Array.prototype.forEach.call(swatches, function (b) {
+    b.classList.toggle('on', b.dataset.id === saved.mood || (!saved.mood && b === swatches[0]));
+  });
+  var chips = document.querySelectorAll('#style-chars .chip');
+  Array.prototype.forEach.call(chips, function (b) {
+    b.classList.toggle('on', b.dataset.id === saved.character || (!saved.character && b === chips[0]));
+  });
+}
+
 // Hoisted so closeOtherPanels (defined earlier) and backToProfiles can call it.
 function closeStyleTray() {
   styleTrayOpen = false;
@@ -3098,7 +3119,10 @@ function handleStyleControlClick(e, kind) {
   }
   saveModeControl(mode, kind, id);
   recordSignal('mode_control', { mode: mode, control: kind, value: id });
-  renderStyleTray();
+  // Class-toggle sync only — a full renderStyleTray() here would detach the
+  // clicked button mid-bubble and trip the outside-click closer (see
+  // updateStyleTraySelection's comment).
+  updateStyleTraySelection();
 }
 
 $styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });

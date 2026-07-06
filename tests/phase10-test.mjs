@@ -162,23 +162,35 @@ await check('Control choice applies, persists per profile, and signals', async (
   await page.waitForTimeout(300);
   const applied = await page.evaluate(() => canvas.regState.moodId);
   if (applied !== targetMood) throw new Error(`applied=${applied} want=${targetMood}`);
+  // Selection must NOT close the tray (regression: full re-render detached
+  // the clicked button mid-bubble, so the document-level outside-click
+  // closer saw a detached e.target and closed the tray on every pick).
+  const stillOpen = await page.evaluate(() => document.getElementById('style-tray').classList.contains('open'));
+  if (!stillOpen) throw new Error('tray closed on selection');
+  // and a second selection in the same open session must also work:
+  const mood2 = await page.evaluate(() => window.CALM_MODES.get('bloom').controls.moods[1].id);
+  await page.click(`#style-moods .swatch[data-id="${mood2}"]`);
+  await page.waitForTimeout(200);
+  const applied2 = await page.evaluate(() => canvas.regState.moodId);
+  if (applied2 !== mood2) throw new Error('second pick failed: ' + applied2);
   const prefs = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-prefs')));
   const saved = prefs.modeControls && prefs.modeControls.bloom && prefs.modeControls.bloom.mood;
-  if (saved !== targetMood) throw new Error('not persisted: ' + JSON.stringify(prefs.modeControls));
+  if (saved !== mood2) throw new Error('not persisted: ' + JSON.stringify(prefs.modeControls));
   if (prefs.soundId === undefined && prefs.volume === undefined) {
     // sound prefs must not have been clobbered IF they existed — soft check:
     // (am1 played sounds earlier in this test file only if soundscape flow ran; assert key survival only when previously present)
   }
   const events = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-signals')) || []);
-  if (!events.some(e => e.type === 'mode_control' && e.payload.mode === 'bloom' && e.payload.control === 'mood' && e.payload.value === targetMood)) throw new Error('no signal');
-  // reload → re-enter → saved mood applies on init
+  if (!events.some(e => e.type === 'mode_control' && e.payload.mode === 'bloom' && e.payload.control === 'mood' && e.payload.value === targetMood)) throw new Error('no signal for first pick');
+  if (!events.some(e => e.type === 'mode_control' && e.payload.mode === 'bloom' && e.payload.control === 'mood' && e.payload.value === mood2)) throw new Error('no signal for second pick');
+  // reload → re-enter → saved (second) mood applies on init
   await page.reload(); await page.waitForTimeout(500);
   await page.locator('.profile-card.filled').first().click(); await page.waitForSelector('#screen-canvas.active');
   await page.evaluate(() => { switchToMode(MODES.indexOf('bloom'), 'tray'); });
   await page.waitForTimeout(400);
   const reApplied = await page.evaluate(() => canvas.regState.moodId);
-  if (reApplied !== targetMood) throw new Error(`reApplied=${reApplied}`);
-  return 'applied+persisted+signaled+restored: ' + targetMood;
+  if (reApplied !== mood2) throw new Error(`reApplied=${reApplied}`);
+  return 'applied+persisted+signaled+restored: ' + mood2 + ' (tray stayed open)';
 });
 
 await check('Style tray usable at mobile viewports and exclusive', async () => {
