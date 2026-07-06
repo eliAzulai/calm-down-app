@@ -181,10 +181,21 @@
     };
   }
 
+  // size control (kid slider): continuous multiplier for spawn-time orbiter
+  // dot size, plus optional per-spawn randomized jitter ("surprise sizes").
+  // NOTE: this scales the rendered dot's pixel size (sizePx below) only --
+  // never `radius` (how far the orbiter circles its anchor), which is an
+  // unrelated orbital-geometry concept, not a visual size.
+  function sizeFactor(state) {
+    var m = (state && state.sizeMul) || 1;
+    return (state && state.sizeRandom) ? m * (0.7 + Math.random() * 0.6) : m;
+  }
+
   // characterKey: which CHARACTER_PRESETS entry to sample ranges from (defaults 'ellipse').
   // moodIdx: index into MOODS this particle samples its color from, captured at spawn so a
   // later mood switch doesn't recolor existing particles — they keep their mood and age out naturally.
-  function makeParticle(anchorIdx, cx, cy, characterKey, moodIdx) {
+  // sizeMul: size-control multiplier for the rendered dot, captured at spawn (see sizeFactor above).
+  function makeParticle(anchorIdx, cx, cy, characterKey, moodIdx, sizeMul) {
     var palette = MOODS[moodIdx != null ? moodIdx : 0].colors;
     var preset = CHARACTER_PRESETS[characterKey] || CHARACTER_PRESETS.ellipse;
     var isComet = Math.random() < COMET_CHANCE;
@@ -198,7 +209,7 @@
     var radiusSpan = preset.radiusMax - preset.radiusMin || 1;
     var colorT = clamp((radius - preset.radiusMin) / radiusSpan, 0, 1) * 0.75 + rand(-0.12, 0.12);
     colorT = clamp(colorT, 0, 1);
-    var sizePx = isComet ? rand(3.5, 5.5) : rand(1.5, 4);
+    var sizePx = (isComet ? rand(3.5, 5.5) : rand(1.5, 4)) * (sizeMul || 1); // size control (kid slider)
 
     return {
       anchor: anchorIdx,
@@ -258,7 +269,8 @@
         idleAnchor: { x: w * 0.5, y: h * 0.5, vx: 0, vy: 0, tx: w * 0.5, ty: h * 0.5, retimeT: rand(4, 9) },
         hasEverTouched: false,
         moodIdx: 0,          // index into MOODS; new particles sample this palette at spawn
-        characterId: 'ellipse' // current character preset id; existing particles ease toward it
+        characterId: 'ellipse', // current character preset id; existing particles ease toward it
+        sizeMul: 1, sizeRandom: false
       };
       return state;
     },
@@ -317,7 +329,7 @@
           var count = Math.floor(rand(18, 30));
           for (var p = 0; p < count; p++) {
             if (state.particles.length >= MAX_PARTICLES) break;
-            var pt = makeParticle(newIdx, x, y, state.characterId, state.moodIdx);
+            var pt = makeParticle(newIdx, x, y, state.characterId, state.moodIdx, sizeFactor(state)); // size control (kid slider)
             pt.born = state.t;
             state.particles.push(pt);
           }
@@ -559,7 +571,7 @@
         state.idleAnchorIdx = state.anchors.length - 1;
         var count = IDLE_PARTICLES;
         for (var p = 0; p < count; p++) {
-          var pt = makeParticle(state.idleAnchorIdx, ia.x, ia.y, state.characterId, state.moodIdx);
+          var pt = makeParticle(state.idleAnchorIdx, ia.x, ia.y, state.characterId, state.moodIdx, sizeFactor(state)); // size control (kid slider)
           pt.born = state.t;
           state.particles.push(pt);
         }
@@ -599,6 +611,8 @@
     // ~2s in tick() (see CHARACTER_EASE_RATE) — never a snap, safe under rapid taps
     // because re-applying just re-rolls the target again from wherever it currently is.
     applyControl: function (state, kind, id) {
+      if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
+      if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
       if (kind === 'mood') {
         for (var i = 0; i < MOODS.length; i++) {
           if (MOODS[i].id === id) { state.moodIdx = i; break; }

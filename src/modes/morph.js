@@ -208,6 +208,15 @@
     ];
   }
 
+  // size control (kid slider): continuous multiplier for a shape's maxR
+  // (its full-grown radius) at spawn, plus optional per-shape randomized
+  // jitter ("surprise sizes"). Applied only at spawn (see makeShape call
+  // sites) so a live shape never jumps mid-life.
+  function sizeFactor(state) {
+    var m = (state && state.sizeMul) || 1;
+    return (state && state.sizeRandom) ? m * (0.7 + Math.random() * 0.6) : m;
+  }
+
   // ---- shape factory --------------------------------------------------------
   function makeShape(x, y, maxR, dragTarget, shapeSetId, moodId) {
     var setId = shapeSetId || DEFAULT_SHAPE_SET;
@@ -282,6 +291,8 @@
     //  - character: queued via pendingShapeSetId, swapped in at updateShape()'s
     //    next form-to-form wrap boundary so nothing snaps mid-morph.
     applyControl: function (state, kind, id) {
+      if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
+      if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
       if (kind === 'mood') {
         if (!MOOD_RGB[id]) return;
         state.activeMoodId = id;
@@ -306,10 +317,11 @@
         idleSpawnDelay: 2.0 + Math.random() * 2.0,
         frameCount: 0,
         activeMoodId: DEFAULT_MOOD,
-        activeShapeSetId: DEFAULT_SHAPE_SET
+        activeShapeSetId: DEFAULT_SHAPE_SET,
+        sizeMul: 1, sizeRandom: false
       };
       // seed idle ambient shape immediately so canvas feels alive pre-touch
-      st.idleShape = makeShape(w * 0.3 + Math.random() * w * 0.4, h * 0.3 + Math.random() * h * 0.4, 70 + Math.random() * 30, false, st.activeShapeSetId, st.activeMoodId);
+      st.idleShape = makeShape(w * 0.3 + Math.random() * w * 0.4, h * 0.3 + Math.random() * h * 0.4, (70 + Math.random() * 30) * sizeFactor(st), false, st.activeShapeSetId, st.activeMoodId); // size control (kid slider)
       st.idleShape.isIdle = true;
       st.idleShape.driftVX = (Math.random() * 2 - 1) * 6; // px/s, very slow drift
       st.idleShape.driftVY = (Math.random() * 2 - 1) * 6;
@@ -322,7 +334,7 @@
           // remove oldest to make room
           state.shapes.shift();
         }
-        var maxR = 40 + Math.random() * 70; // 40-110 px
+        var maxR = (40 + Math.random() * 70) * sizeFactor(state); // 40-110 px, size control (kid slider)
         var s = makeShape(x, y, maxR, true, state.activeShapeSetId, state.activeMoodId);
         s.held = true;
         s.holdTime = 0;
@@ -412,7 +424,7 @@
         if (state.idleTimer >= state.idleSpawnDelay) {
           var nx = state.w * (0.2 + Math.random() * 0.6);
           var ny = state.h * (0.2 + Math.random() * 0.6);
-          var ns = makeShape(nx, ny, 60 + Math.random() * 40, false, state.activeShapeSetId, state.activeMoodId);
+          var ns = makeShape(nx, ny, (60 + Math.random() * 40) * sizeFactor(state), false, state.activeShapeSetId, state.activeMoodId); // size control (kid slider)
           ns.isIdle = true;
           ns.driftVX = (Math.random() * 2 - 1) * 6;
           ns.driftVY = (Math.random() * 2 - 1) * 6;

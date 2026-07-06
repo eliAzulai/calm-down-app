@@ -641,13 +641,15 @@ html, body {
 #style-tray .ctlrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
 #style-tray .ctlrow:last-child { margin-bottom: 0; }
 #style-tray .ctl-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .5; margin-right: 4px; min-width: 44px; }
-#style-tray .swatch { display: flex; align-items: center; gap: 3px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 5px 10px; cursor: pointer; color: inherit; font-size: 12px; min-height: 44px; }
+#style-tray .swatch { display: flex; align-items: center; gap: 3px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 5px 10px; cursor: pointer; color: inherit; font-size: 12px; min-height: 48px; }
 #style-tray .swatch.on { border-color: var(--accent); background: var(--accent-dim); }
 #style-tray .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 #style-tray .swname { margin-left: 4px; font-size: 12px; }
-#style-tray .chip { background: rgba(255, 255, 255, 0.06); color: inherit; border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; min-height: 44px; }
+#style-tray .chip { background: rgba(255, 255, 255, 0.06); color: inherit; border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; min-height: 48px; }
 #style-tray .chip.on { background: var(--accent); color: var(--bg-deep); border-color: var(--accent); font-weight: 600; }
 #style-empty { font-size: 12.5px; opacity: .6; }
+/* Size control (Task A5): kid-facing slider + surprise-sizes toggle. */
+#style-size input[type=range] { width: 130px; accent-color: var(--accent); }
 
 .mode-option {
   min-height: 48px;

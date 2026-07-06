@@ -214,14 +214,28 @@
 
   var FORMS_PER_SET = 4; // every shape set exposes exactly 4 forms (see SHAPE_SETS)
 
-  // Build the ring vertex list for the "live" object at its current pose.
-  function buildRing(obj) {
+  // size control (kid slider): continuous multiplier for the live object's
+  // draw size, plus optional per-call randomized jitter ("surprise sizes").
+  // Kept separate from a per-stamp factor (see stampObject) so the live
+  // object never visibly jumps -- only newly-created stamps get their own
+  // independently-rolled random size when surprise is on.
+  function sizeFactor(state) {
+    var m = state.sizeMul || 1;
+    return state.sizeRandom ? m * (0.7 + Math.random() * 0.6) : m;
+  }
+
+  // Build the ring vertex list for the object's current pose, scaled by the
+  // given size multiplier (1 = untouched). Shared by both the live-object
+  // draw (continuous state.sizeMul) and the stamp-record path (its own
+  // per-stamp factor when surprise sizes is on) -- see call sites.
+  function buildRing(obj, sizeMul) {
     var pts = new Array(POINTS);
     var i, theta, rMul, r, a;
+    var sm = sizeMul || 1;
     for (i = 0; i < POINTS; i++) {
       theta = (i / POINTS) * Math.PI * 2;
       rMul = currentRadiusMul(obj.morphT, obj.formIdx, theta, obj.shapeSetId);
-      r = obj.radius * rMul;
+      r = obj.radius * rMul * sm;
       a = theta + obj.rot;
       pts[i] = [obj.x + Math.cos(a) * r, obj.y + Math.sin(a) * r];
     }
@@ -326,7 +340,11 @@
   // Stamp the object's current geometry, opaquely, onto the stamp canvas.
   function stampObject(state, o) {
     var sctx = state.stampCtx;
-    var pts = buildRing(o);
+    // size control (kid slider): each stamp gets its own independently-rolled
+    // random factor when surprise sizes is on (a stamp is baked once and
+    // never revisited, so per-stamp variety here is exactly "surprise" with
+    // no live jump); otherwise the plain continuous multiplier.
+    var pts = buildRing(o, sizeFactor(state));
     var rgb = currentFillRgb(o);
 
     sctx.save();
@@ -369,12 +387,16 @@
       character: { label: 'Shapes', options: CHARACTERS }
     },
 
-    // kind: 'mood' | 'character'. id: matching option id.
+    // kind: 'mood' | 'character' | 'size' | 'sizeRandom'. id: matching option
+    // id, or (for size/sizeRandom) a raw number/boolean -- see module header.
     // Existing stamps are archive -- never touched. Safe under rapid tapping:
     // both branches just overwrite a pending/current field with the latest
     // requested id, no queues, no stacking timers.
     applyControl: function (state, kind, id) {
-      if (!state || !state.live) return;
+      if (!state) return;
+      if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
+      if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+      if (!state.live) return;
       var o = state.live;
       if (kind === 'mood') {
         // Immediate: the color walk keeps its position, but every stamp from
@@ -408,6 +430,7 @@
         stampCtx: stampCtx,
         stampTimer: 0,
         dragging: false,
+        sizeMul: 1, sizeRandom: false,
         live: makeObject(w * 0.4 + Math.random() * w * 0.2, h * 0.4 + Math.random() * h * 0.2)
       };
       return st;
@@ -466,7 +489,7 @@
 
       // draw the live object on top with a soft subtle glow ring so it reads
       // as "alive" vs the static archive underneath.
-      drawLiveObject(ctx, o);
+      drawLiveObject(ctx, o, state);
     },
 
     idle: function (state, w, h, dt) {
@@ -476,8 +499,12 @@
     }
   };
 
-  function drawLiveObject(ctx, o) {
-    var pts = buildRing(o);
+  function drawLiveObject(ctx, o, state) {
+    // size control (kid slider): the live object always uses the plain
+    // continuous multiplier (never per-frame randomized, even when surprise
+    // sizes is on) so it never jitters/jumps while being watched or dragged
+    // -- only newly-baked stamps get their own independent random factor.
+    var pts = buildRing(o, (state && state.sizeMul) || 1);
     var rgb = currentFillRgb(o);
 
     // soft glow ring, slow pulse (<=0.15Hz), never flashes

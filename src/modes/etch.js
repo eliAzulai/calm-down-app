@@ -112,7 +112,9 @@
     var idx = pickPaletteIndex(state.rng);
     var stroke = {
       id: state.nextStrokeId++,
-      pts: [{ x: x, y: y, arc: 0, tAdded: state.clock, erasedAt: -1 }],
+      // size control (kid slider): sizeMul stamped once per point, at
+      // creation, same "never revisited" pattern as tAdded/arc below.
+      pts: [{ x: x, y: y, arc: 0, tAdded: state.clock, erasedAt: -1, sizeMul: sizeFactor(state) }],
       born: state.clock,
       colorBase: idx,
       colorDrift: 0.10 + state.rng() * 0.22,
@@ -128,7 +130,7 @@
     var d = Math.sqrt(dx * dx + dy * dy);
     if (d < MIN_POINT_SPACING) return false;
     var arc = last.arc + d;
-    stroke.pts.push({ x: x, y: y, arc: arc, tAdded: state.clock, erasedAt: -1 });
+    stroke.pts.push({ x: x, y: y, arc: arc, tAdded: state.clock, erasedAt: -1, sizeMul: sizeFactor(state) }); // size control (kid slider)
     stroke.totalArc = arc;
     return true;
   }
@@ -142,6 +144,17 @@
       }
     }
     return total;
+  }
+
+  // size control (kid slider): continuous multiplier for a point's bead
+  // radius/width, captured once per point at the moment it's added to a
+  // stroke (see newStroke/pushPoint), plus optional per-point randomized
+  // jitter ("surprise sizes"). Frozen per-point exactly like arc/tAdded --
+  // an existing stroke's already-placed points never resize retroactively
+  // when the slider moves; only points added from here on pick up the change.
+  function sizeFactor(state) {
+    var m = (state && state.sizeMul) || 1;
+    return (state && state.sizeRandom) ? m * (0.7 + Math.random() * 0.6) : m;
   }
 
   // ---- state ------------------------------------------------------------------
@@ -158,7 +171,8 @@
       activeStroke: null,
       lastX: null, lastY: null,
       idleT: 0,
-      eraseStamps: []        // transient { x, y, r, tStart } destination-out fade stamps
+      eraseStamps: [],       // transient { x, y, r, tStart } destination-out fade stamps
+      sizeMul: 1, sizeRandom: false
     };
     return state;
   }
@@ -424,7 +438,12 @@
       var erFade = lerp(erFadeA, erFadeB, localT);
 
       if (erFade > 0.003 && strokeAlphaMul > 0.003) {
-        var virtualPt = { x: x, y: y, arc: nextArc };
+        // size control (kid slider): interpolate the two straddling points'
+        // already-frozen sizeMul, same spatial-blend treatment as x/y/erFade
+        // above -- never re-reads the live state.sizeMul, so a slider move
+        // never resizes beads already drawn from existing stored points.
+        var sizeMul = lerp(a.sizeMul != null ? a.sizeMul : 1, b.sizeMul != null ? b.sizeMul : 1, localT);
+        var virtualPt = { x: x, y: y, arc: nextArc, sizeMul: sizeMul };
         drawBead(ctx, state, st, virtualPt, totalArc, erFade * strokeAlphaMul);
       }
       nextArc += BEAD_SPACING;
@@ -449,7 +468,10 @@
     // (spatial, not time — so it doesn't pulse in place, it just varies
     // smoothly bead-to-bead along the ribbon's length).
     var widthT = 0.5 + 0.5 * Math.sin(pt.arc * 0.02 + st.id * 1.7);
-    var radius = lerp(TRAIL_RADIUS_MIN, TRAIL_RADIUS_MAX, widthT);
+    // size control (kid slider): pt.sizeMul was frozen at point-add time
+    // (see newStroke/pushPoint) -- multiplying it in here at draw time never
+    // re-reads the live state.sizeMul, so already-drawn beads never resize.
+    var radius = lerp(TRAIL_RADIUS_MIN, TRAIL_RADIUS_MAX, widthT) * (pt.sizeMul != null ? pt.sizeMul : 1);
 
     // traveling brightness wave: phase depends on (arc - speed*time), so at
     // any FIXED spatial point the phase advances at a constant rate driven
@@ -485,6 +507,20 @@
     ctx.fill();
   }
 
+  // ---- kid-facing smart controls --------------------------------------------
+  // Etch has NO mood/character controls (no `controls` object registered
+  // below) -- it draws in one fixed curated palette by design. Size is the
+  // one control it supports: kind 'size' | 'sizeRandom' only. The style
+  // tray's empty-message branch still needs to special-case "no controls
+  // object, but applyControl exists" to show the size row alongside (rather
+  // than instead of) the "this mode paints its own colours" message — see
+  // app.js's renderStyleTray().
+  function applyControl(state, kind, id) {
+    if (!state) return;
+    if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
+    if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+  }
+
   // ---- register ------------------------------------------------------------
 
   window.VARIANTS = window.VARIANTS || {};
@@ -494,7 +530,8 @@
     init: init,
     pointer: pointer,
     tick: tick,
-    idle: idle
+    idle: idle,
+    applyControl: applyControl
   };
 
 })();

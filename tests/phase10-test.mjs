@@ -209,6 +209,39 @@ await check('Style tray usable at mobile viewports and exclusive', async () => {
   return 'mobile OK + exclusive';
 });
 
+await check('Size control scales and clamps; surprise randomizes', async () => {
+  await page.evaluate(() => { switchToMode(MODES.indexOf('echo'), 'tray'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    var V = window.CALM_MODES.get('echo');
+    V.applyControl(canvas.regState, 'size', 1.6);
+  });
+  const big = await page.evaluate(() => canvas.regState.sizeMul);
+  await page.evaluate(() => window.CALM_MODES.get('echo').applyControl(canvas.regState, 'size', 99));
+  const clamped = await page.evaluate(() => canvas.regState.sizeMul);
+  await page.evaluate(() => window.CALM_MODES.get('echo').applyControl(canvas.regState, 'sizeRandom', true));
+  const rand = await page.evaluate(() => canvas.regState.sizeRandom);
+  if (big !== 1.6 || clamped > 1.6 || rand !== true) throw new Error(`big=${big} clamped=${clamped} rand=${rand}`);
+  return 'bounded + randomizable';
+});
+
+await check('Size slider UI persists and applies via tray', async () => {
+  await page.click('#btn-style');
+  await page.waitForSelector('#style-tray.open');
+  const slider = page.locator('#style-size-slider');
+  if (!(await slider.count())) throw new Error('no slider');
+  await slider.fill('140'); // 1.4x
+  await page.waitForTimeout(700); // debounce
+  const applied = await page.evaluate(() => canvas.regState.sizeMul);
+  const prefs = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-prefs')));
+  const saved = prefs.modeControls && prefs.modeControls.echo && prefs.modeControls.echo.size;
+  const trayOpen = await page.evaluate(() => document.getElementById('style-tray').classList.contains('open'));
+  if (Math.abs(applied - 1.4) > 0.01 || Math.abs(saved - 1.4) > 0.01 || !trayOpen) throw new Error(`applied=${applied} saved=${saved} open=${trayOpen}`);
+  const events = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-signals')) || []);
+  if (!events.some(e => e.type === 'mode_control' && e.payload.control === 'size')) throw new Error('no debounced size signal');
+  return 'slider applied+persisted+signaled, tray open';
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };

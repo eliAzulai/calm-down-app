@@ -276,11 +276,28 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     return phyllotaxisGeom(bloom, n);
   }
 
+  // size control (kid slider): continuous multiplier for a seed's petal
+  // len/wid at the moment it's generated, plus optional per-seed randomized
+  // jitter ("surprise sizes"). Unlike moodId/family (frozen once per BLOOM
+  // at creation), size is re-sampled per SEED so surprise reads as per-petal
+  // variety within a single spiral, not a single frozen roll for the whole
+  // bloom. Jitter band kept tighter than other modes' 0.7-1.3 (0.85-1.15)
+  // so a surprise-sizes garden still reads as an ordered phyllotaxis/dahlia/
+  // rose pattern rather than noisy scatter -- the ordered growth IS the
+  // point of this variant, per the pass-3 "make ORDER the star" directive.
+  function sizeFactor(state) {
+    var m = (state && state.sizeMul) || 1;
+    return (state && state.sizeRandom) ? m * (0.85 + Math.random() * 0.3) : m;
+  }
+
   // Seed geometry: petal (teardrop) shaped, oriented along the spiral tangent,
   // starting tiny near the center and growing gently outward — never a plain
   // dot, never blobby. Petal length scales with radius so the bud starts
   // delicate and only elongates as the spiral unfurls.
-  function regenSeedAt(bloom, n) {
+  // `state` (optional) supplies the live size-control multiplier; omitted
+  // (or sizeRandom off) it degrades to the plain continuous factor, keeping
+  // this otherwise a pure function of (bloom, n) for the path-hint preview.
+  function regenSeedAt(bloom, n, state) {
     var geo = familyGeom(bloom, n);
     var ang = geo.ang;
     var r = geo.r;
@@ -296,8 +313,9 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     // petal length grows from tiny (bud) to modest (open bloom); width stays
     // slender relative to length (length:width ratio ~3.4-4.6:1 throughout) so
     // it always reads as an elongated petal, never a round blob/dot.
-    var lenBase = lerp(2.6, 9.5, ct);
-    var widBase = lerp(0.6, 2.1, ct);
+    var sf = sizeFactor(state); // size control (kid slider)
+    var lenBase = lerp(2.6, 9.5, ct) * sf;
+    var widBase = lerp(0.6, 2.1, ct) * sf;
     return {
       n: n, r: r, ang: ang, col: col, len: lenBase, wid: widBase, wobble: wobble,
       ringIdx: geo.ringIdx, whorlIdx: geo.whorlIdx
@@ -345,6 +363,8 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     // moodId/family fields.
     this.moodId = MOODS[0].id;
     this.characterId = 'mix';
+    this.sizeMul = 1;
+    this.sizeRandom = false;
   }
 
   function init(w, h, theme) {
@@ -569,7 +589,7 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
       var target = Math.min(capForThis, Math.floor(bloom.seedCount));
       while (bloom.seeds.length < target) {
         var n = bloom.seeds.length;
-        bloom.seeds.push(regenSeedAt(bloom, n));
+        bloom.seeds.push(regenSeedAt(bloom, n, state)); // size control (kid slider)
       }
     }
 
@@ -853,9 +873,13 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     // once a bloom has reached its cap (no "next" seed coming).
     if (!bloom.dissolving && bloom.seeds.length < bloom.seedTarget) {
       var nextN = bloom.seeds.length;
-      // regenSeedAt is a pure function of (bloom, n) — safe to call for a
-      // preview without mutating any real growth state.
-      var previewSeed = regenSeedAt(bloom, nextN);
+      // regenSeedAt is a pure function of (bloom, n, state) — safe to call
+      // for a preview without mutating any real growth state. DEVIATION:
+      // when sizeRandom is on, this preview's own random jitter roll will
+      // not exactly match the real seed's roll when it actually arrives
+      // (each call re-rolls) — an acceptable, minor mismatch since this is
+      // only a soft anticipation glow, not the seed itself.
+      var previewSeed = regenSeedAt(bloom, nextN, state);
       var pr = previewSeed.r * breathe * shrinkMul;
       var pang = previewSeed.ang + bloom.rot;
       var px = bloom.cx + pr * Math.cos(pang);
@@ -921,6 +945,8 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
   // a control is just two property writes on `state`, no reflow/rebuild of
   // any existing bloom or seed.
   function applyControl(state, kind, id) {
+    if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
+    if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
     if (kind === 'mood') {
       var mood = findMood(id);
       state.moodId = mood.id;

@@ -846,6 +846,8 @@ function applySavedModeControls(mode) {
   var saved = getModeControls(state.activeProfileId)[mode] || {};
   if (saved.mood) { try { V.applyControl(canvas.regState, 'mood', saved.mood); } catch (e) {} }
   if (saved.character) { try { V.applyControl(canvas.regState, 'character', saved.character); } catch (e) {} }
+  if (saved.size) { try { V.applyControl(canvas.regState, 'size', saved.size); } catch (e) {} }
+  if (saved.sizeRandom !== undefined) { try { V.applyControl(canvas.regState, 'sizeRandom', saved.sizeRandom); } catch (e) {} }
 }
 
 function registryModeError(mode, err) {
@@ -2831,6 +2833,25 @@ function recordVolumeChange(val) {
   }, 500);
 }
 
+// Size-slider signal, debounced 500ms — mirrors recordVolumeChange's
+// context-capture-at-call-time-then-fire-later pattern exactly, so a drag
+// across the slider emits one signal at rest, not one per input tick
+// (Task A5). Kept as its own timer/function (not reusing volumeSignalTimer)
+// since a size drag and a volume drag could otherwise race and clobber
+// each other's pending signal.
+var sizeSignalTimer = null;
+
+function recordSizeChange(mode, val) {
+  var profileId = state.activeProfileId;
+  var context = profileId ? getSignalContext(profileId) : null;
+  clearTimeout(sizeSignalTimer);
+  sizeSignalTimer = setTimeout(function() {
+    if (profileId) {
+      recordSignalForProfileWithContext(profileId, 'mode_control', { mode: mode, control: 'size', value: val }, context);
+    }
+  }, 500);
+}
+
 function setVolume(val) {
   audio.volume = val;
   if (audio.masterGain) {
@@ -3016,6 +3037,7 @@ var $btnStyle = document.getElementById('btn-style');
 var $styleTray = document.getElementById('style-tray');
 var $styleMoods = document.getElementById('style-moods');
 var $styleChars = document.getElementById('style-chars');
+var $styleSize = document.getElementById('style-size');
 var $styleEmpty = document.getElementById('style-empty');
 var styleTrayOpen = false;
 
@@ -3024,36 +3046,92 @@ function renderStyleTray() {
   var V = isRegistryMode(mode) ? window.CALM_MODES.get(mode) : null;
   var $m = $styleMoods;
   var $c = $styleChars;
+  var $s = $styleSize;
   var $e = $styleEmpty;
-  $m.textContent = ''; $c.textContent = '';
-  if (!V || !V.controls) {
-    $m.style.display = 'none'; $c.style.display = 'none'; $e.style.display = '';
+  $m.textContent = ''; $c.textContent = ''; $s.textContent = '';
+  if (!V) {
+    // Legacy (non-registry) mode: no smart controls of any kind.
+    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $e.style.display = '';
     return;
   }
-  $e.style.display = 'none';
   var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
-  $m.style.display = 'flex';
-  var lbl = document.createElement('span'); lbl.className = 'ctl-label'; lbl.textContent = 'Mood'; $m.appendChild(lbl);
-  V.controls.moods.forEach(function (mo, i) {
-    var b = document.createElement('button');
-    b.className = 'swatch' + ((saved.mood ? saved.mood === mo.id : i === 0) ? ' on' : '');
-    b.dataset.id = mo.id;
-    (mo.colors || []).slice(0, 4).forEach(function (hex) {
-      var d = document.createElement('span'); d.className = 'dot'; d.style.background = hex; b.appendChild(d);
+  if (!V.controls) {
+    // Registry mode with no mood/character controls (etch): hide moods/chars
+    // and the "paints its own colours" message, but still show the size row
+    // (Task A5) — size is orthogonal to whether a mode exposes mood/character.
+    $m.style.display = 'none'; $c.style.display = 'none'; $e.style.display = 'none';
+  } else {
+    $e.style.display = 'none';
+    $m.style.display = 'flex';
+    var lbl = document.createElement('span'); lbl.className = 'ctl-label'; lbl.textContent = 'Mood'; $m.appendChild(lbl);
+    V.controls.moods.forEach(function (mo, i) {
+      var b = document.createElement('button');
+      b.className = 'swatch' + ((saved.mood ? saved.mood === mo.id : i === 0) ? ' on' : '');
+      b.dataset.id = mo.id;
+      (mo.colors || []).slice(0, 4).forEach(function (hex) {
+        var d = document.createElement('span'); d.className = 'dot'; d.style.background = hex; b.appendChild(d);
+      });
+      var nm = document.createElement('span'); nm.className = 'swname'; nm.textContent = mo.name; b.appendChild(nm);
+      $m.appendChild(b);
     });
-    var nm = document.createElement('span'); nm.className = 'swname'; nm.textContent = mo.name; b.appendChild(nm);
-    $m.appendChild(b);
-  });
-  $c.style.display = 'flex';
-  var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
-  lbl2.textContent = (V.controls.character && V.controls.character.label) || 'Style';
-  $c.appendChild(lbl2);
-  (V.controls.character ? V.controls.character.options : []).forEach(function (o, i) {
-    var b = document.createElement('button');
-    b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
-    b.dataset.id = o.id; b.textContent = o.name;
-    $c.appendChild(b);
-  });
+    $c.style.display = 'flex';
+    var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
+    lbl2.textContent = (V.controls.character && V.controls.character.label) || 'Style';
+    $c.appendChild(lbl2);
+    (V.controls.character ? V.controls.character.options : []).forEach(function (o, i) {
+      var b = document.createElement('button');
+      b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
+      b.dataset.id = o.id; b.textContent = o.name;
+      $c.appendChild(b);
+    });
+  }
+
+  // ---- Size row (Task A5): works for ALL registry modes, incl. etch ----
+  if (V.applyControl) {
+    $s.style.display = 'flex';
+    var lbl3 = document.createElement('span'); lbl3.className = 'ctl-label'; lbl3.textContent = 'Size'; $s.appendChild(lbl3);
+    var slider = document.createElement('input');
+    slider.type = 'range'; slider.min = '60'; slider.max = '160'; slider.step = '5';
+    slider.value = String(Math.round(((saved.size || 1) * 100)));
+    slider.id = 'style-size-slider'; slider.setAttribute('aria-label', 'Size');
+    $s.appendChild(slider);
+    var surprise = document.createElement('button');
+    surprise.className = 'chip' + (saved.sizeRandom ? ' on' : '');
+    surprise.id = 'style-size-random'; surprise.textContent = 'Surprise sizes';
+    $s.appendChild(surprise);
+
+    // Slider: apply immediately (continuous, no rebuild — mirrors the A4
+    // lesson that a full renderStyleTray() on every input would be both
+    // wasteful and would fight the outside-click closer mid-drag), persist,
+    // and record a DEBOUNCED signal (500ms, mirrors recordVolumeChange's
+    // context-capture-then-fire pattern) so a slider drag emits one signal,
+    // not one per tick.
+    slider.addEventListener('input', function (e) {
+      var v = parseInt(e.target.value, 10) / 100;
+      if (!canvas.regState) return;
+      var Vnow = window.CALM_MODES.get(mode);
+      if (!Vnow || !Vnow.applyControl) return;
+      try { Vnow.applyControl(canvas.regState, 'size', v); } catch (err) { registryModeError(mode, err); return; }
+      saveModeControl(mode, 'size', v);
+      recordSizeChange(mode, v);
+    });
+
+    // Surprise sizes: toggle button — apply + save + signal (undebounced,
+    // it's a discrete tap not a drag) + in-place class toggle (NO rebuild,
+    // same A4 lesson as the mood/character chips).
+    surprise.addEventListener('click', function () {
+      if (!canvas.regState) return;
+      var Vnow = window.CALM_MODES.get(mode);
+      if (!Vnow || !Vnow.applyControl) return;
+      var next = !surprise.classList.contains('on');
+      try { Vnow.applyControl(canvas.regState, 'sizeRandom', next); } catch (err) { registryModeError(mode, err); return; }
+      saveModeControl(mode, 'sizeRandom', next);
+      recordSignal('mode_control', { mode: mode, control: 'sizeRandom', value: next });
+      surprise.classList.toggle('on', next);
+    });
+  } else {
+    $s.style.display = 'none';
+  }
 }
 
 // Selection-sync WITHOUT rebuild — the sound panel's updateSoundUI pattern.

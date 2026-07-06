@@ -144,7 +144,17 @@
   // Lifetime 3-5s; alpha fades to exact zero with a wave-tail ease. Color
   // flows along the palette across the spark's lifetime (not a fixed pick).
 
-  function newSpark(cx, cy, x, y, rng, isHold, moodId, foldCount) {
+  // size control (kid slider): continuous multiplier for a spark's base
+  // stroke width, plus optional per-spark randomized jitter ("surprise
+  // sizes"). Applied only at emission (see newSpark) -- a spark's width is
+  // stamped once and never revisited, so per-spark jitter here is exactly
+  // "surprise" with no live jump.
+  function sizeFactor(state) {
+    var m = (state && state.sizeMul) || 1;
+    return (state && state.sizeRandom) ? m * (0.7 + Math.random() * 0.6) : m;
+  }
+
+  function newSpark(cx, cy, x, y, rng, isHold, moodId, foldCount, sizeMul) {
     var dx = x - cx, dy = y - cy;
     var r = Math.sqrt(dx * dx + dy * dy) || 0.001;
     var ang = Math.atan2(dy, dx);
@@ -161,7 +171,7 @@
       colStart: rng(),                       // starting position along palette flow
       colDrift: 0.12 + rng() * 0.18,         // how far color travels across its life
       lum: 0.85 + rng() * 0.4,              // +/- within 25% band roughly (0.85-1.25 clamped later)
-      width: 1.4 + rng() * 1.8,             // 1.4-3.2px at the base
+      width: (1.4 + rng() * 1.8) * (sizeMul || 1), // 1.4-3.2px at the base -- size control (kid slider)
       isHold: !!isHold,
       // Stamped at emission so live control switches never glitch in-flight
       // sparks: each spark renders under whatever mood/fold it was born with,
@@ -238,7 +248,8 @@
       moodId: MOODS[0].id,
       symmetryId: defaultSymmetry.id,
       fold: defaultSymmetry.fold,
-      maxSparks: defaultSymmetry.maxSparks
+      maxSparks: defaultSymmetry.maxSparks,
+      sizeMul: 1, sizeRandom: false
     };
     buildBgSprite(state);
     return state;
@@ -306,7 +317,7 @@
   }
 
   function emitSpark(state, x, y, isHold) {
-    var sp = newSpark(state.cx, state.cy, x, y, state.rng, isHold, state.moodId, state.fold);
+    var sp = newSpark(state.cx, state.cy, x, y, state.rng, isHold, state.moodId, state.fold, sizeFactor(state)); // size control (kid slider)
     state.sparks.push(sp);
     var cap = state.maxSparks || MAX_SPARKS;
     if (state.sparks.length > cap) {
@@ -332,7 +343,7 @@
         var r = Math.min(w, h) * (0.08 + state.rng() * 0.12);
         var x = state.cx + Math.cos(ang) * r;
         var y = state.cy + Math.sin(ang) * r;
-        var sp = newSpark(state.cx, state.cy, x, y, state.rng, false, state.moodId, state.fold);
+        var sp = newSpark(state.cx, state.cy, x, y, state.rng, false, state.moodId, state.fold, sizeFactor(state)); // size control (kid slider)
         sp.isIdle = true;
         // pass4 trace-fade policy: was 5 + rng()*2 (5-7s, "linger a touch
         // longer" than active sparks) — that put idle sparks well outside the
@@ -502,6 +513,8 @@
   // state.fold / state.maxSparks, which future emitSpark()/idle() calls read.
 
   function applyControl(state, kind, id) {
+    if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
+    if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
     if (kind === 'mood') {
       var mood = findMood(id);
       state.moodId = mood.id;

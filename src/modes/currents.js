@@ -122,17 +122,26 @@
     { speedMin: 34, speedMax: 58, sizeMin: 0.7, sizeMax: 1.5, alpha: 0.85 }
   ];
 
+  // size control (kid slider): continuous multiplier for spawn-time particle
+  // radius, plus optional per-spawn randomized jitter ("surprise sizes").
+  // Applied only at spawn (see makeParticle) so a live particle never jumps.
+  function sizeFactor(state) {
+    var m = state.sizeMul || 1;
+    return state.sizeRandom ? m * (0.7 + Math.random() * 0.6) : m;
+  }
+
   // `moodRgb` is captured once at spawn time from whichever mood is live
   // right now (state.liveMoodRgb) so existing elements keep their color and
   // simply age out naturally on their own life/maxLife -- switching moods
   // never rewrites elements already on screen (contract: no jarring global
   // recolor). Falls back to the default deep-sea mood (MOODS[0].rgb) if
-  // omitted, keeping any legacy/direct callers working.
-  function makeParticle(w, h, x, y, moodRgb) {
+  // omitted, keeping any legacy/direct callers working. `sizeMul` (size
+  // control) similarly scales this particle's radius once, at spawn only.
+  function makeParticle(w, h, x, y, moodRgb, sizeMul) {
     var stratum = pickStratum();
     var s = STRATA[stratum];
     var speed = s.speedMin + Math.random() * (s.speedMax - s.speedMin);
-    var size = s.sizeMin + Math.random() * (s.sizeMax - s.sizeMin);
+    var size = (s.sizeMin + Math.random() * (s.sizeMax - s.sizeMin)) * (sizeMul || 1); // size control (kid slider)
     var hasPos = (typeof x === 'number');
     return {
       x: hasPos ? x : Math.random() * w,
@@ -206,7 +215,9 @@
       },
       characterTarget: {
         curl: CHARACTERS[1].curl, parallel: CHARACTERS[1].parallel, channel: CHARACTERS[1].channel
-      }
+      },
+      // ---- kid-facing smart controls: size ----
+      sizeMul: 1, sizeRandom: false
     };
     for (var i = 0; i < MAX_MOTES; i++) state.motes.push(makeMote(w, h, state.liveMoodRgb));
     buildBgCache(state);
@@ -274,7 +285,7 @@
     for (var i = 0; i < n; i++) {
       var ang = Math.random() * Math.PI * 2;
       var rad = Math.random() * 14;
-      var p = makeParticle(state.w, state.h, x + Math.cos(ang) * rad, y + Math.sin(ang) * rad, state.liveMoodRgb);
+      var p = makeParticle(state.w, state.h, x + Math.cos(ang) * rad, y + Math.sin(ang) * rad, state.liveMoodRgb, sizeFactor(state)); // size control (kid slider)
       state.particles.push(p);
     }
     thin(state);
@@ -330,7 +341,7 @@
 
     // sparse ambient spawn to keep river alive without ever feeling busy
     if (state.particles.length < 60 && Math.random() < dt * 3) {
-      state.particles.push(makeParticle(w, h, undefined, undefined, state.liveMoodRgb));
+      state.particles.push(makeParticle(w, h, undefined, undefined, state.liveMoodRgb, sizeFactor(state))); // size control (kid slider)
     }
 
     var touch = state.touch;
@@ -455,7 +466,7 @@
   // the rivers themselves stay gently visible, not just motes.
   function idle(state, w, h, dt) {
     if (state.particles.length < 90 && Math.random() < dt * 1.2) {
-      state.particles.push(makeParticle(w, h, undefined, undefined, state.liveMoodRgb));
+      state.particles.push(makeParticle(w, h, undefined, undefined, state.liveMoodRgb, sizeFactor(state))); // size control (kid slider)
       thin(state);
     }
   }
@@ -469,6 +480,8 @@
   // no-op target update, re-tapping a different id just redirects the ease).
   function applyControl(state, kind, id) {
     if (!state) return;
+    if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
+    if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
     if (kind === 'mood') {
       var mood = findMood(id);
       state.liveMoodId = mood.id;
