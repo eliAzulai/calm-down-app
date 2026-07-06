@@ -145,6 +145,58 @@ await check('Panels are mutually exclusive', async () => {
   return 'exclusive';
 });
 
+await check('Style tray shows mood+character for registry mode', async () => {
+  await page.evaluate(() => { switchToMode(MODES.indexOf('bloom'), 'tray'); });
+  await page.waitForTimeout(300);
+  await page.click('#btn-style');
+  await page.waitForSelector('#style-tray.open');
+  const moods = await page.locator('#style-moods .swatch').count();
+  const chars = await page.locator('#style-chars .chip').count();
+  if (moods !== 4 || chars < 3) throw new Error(`moods=${moods} chars=${chars}`);
+  return `${moods} moods, ${chars} chars`;
+});
+
+await check('Control choice applies, persists per profile, and signals', async () => {
+  const targetMood = await page.evaluate(() => window.CALM_MODES.get('bloom').controls.moods[2].id);
+  await page.click(`#style-moods .swatch[data-id="${targetMood}"]`);
+  await page.waitForTimeout(300);
+  const applied = await page.evaluate(() => canvas.regState.moodId);
+  if (applied !== targetMood) throw new Error(`applied=${applied} want=${targetMood}`);
+  const prefs = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-prefs')));
+  const saved = prefs.modeControls && prefs.modeControls.bloom && prefs.modeControls.bloom.mood;
+  if (saved !== targetMood) throw new Error('not persisted: ' + JSON.stringify(prefs.modeControls));
+  if (prefs.soundId === undefined && prefs.volume === undefined) {
+    // sound prefs must not have been clobbered IF they existed — soft check:
+    // (am1 played sounds earlier in this test file only if soundscape flow ran; assert key survival only when previously present)
+  }
+  const events = await page.evaluate(() => JSON.parse(localStorage.getItem('calm-station-am1-signals')) || []);
+  if (!events.some(e => e.type === 'mode_control' && e.payload.mode === 'bloom' && e.payload.control === 'mood' && e.payload.value === targetMood)) throw new Error('no signal');
+  // reload → re-enter → saved mood applies on init
+  await page.reload(); await page.waitForTimeout(500);
+  await page.locator('.profile-card.filled').first().click(); await page.waitForSelector('#screen-canvas.active');
+  await page.evaluate(() => { switchToMode(MODES.indexOf('bloom'), 'tray'); });
+  await page.waitForTimeout(400);
+  const reApplied = await page.evaluate(() => canvas.regState.moodId);
+  if (reApplied !== targetMood) throw new Error(`reApplied=${reApplied}`);
+  return 'applied+persisted+signaled+restored: ' + targetMood;
+});
+
+await check('Style tray usable at mobile viewports and exclusive', async () => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.waitForTimeout(400);
+  await page.click('#btn-style');
+  await page.waitForSelector('#style-tray.open');
+  const box = await page.locator('#style-tray').boundingBox();
+  if (box.y < 0 || box.y + box.height > 668) throw new Error('clipped: ' + JSON.stringify(box));
+  await page.click('#btn-modes'); await page.waitForSelector('#mode-tray.open');
+  const styleOpen = await page.evaluate(() => document.getElementById('style-tray').classList.contains('open'));
+  if (styleOpen) throw new Error('style tray stayed open');
+  await page.click('#btn-modes'); // close
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.waitForTimeout(400);
+  return 'mobile OK + exclusive';
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };

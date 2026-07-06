@@ -690,6 +690,7 @@ function backToProfiles() {
   stopCanvas();
   stopSoundOnExit();
   closeModeTray(); // same exit hygiene stopSoundOnExit gives the sound panel
+  closeStyleTray(); // same exit hygiene, third panel (Task A4)
   stopGentlePromptTimer();
   closeBreatheOverlay();
   closeGroundOverlay();
@@ -824,7 +825,28 @@ function ensureRegState(mode) {
   return canvas.regState;
 }
 
-function applySavedModeControls(mode) {} // stub — populated in Task A4
+function getModeControls(profileId) {
+  var prefs = getProfilePrefs(profileId);
+  return (prefs && prefs.modeControls) || {};
+}
+
+function saveModeControl(mode, control, value) {
+  if (!state.activeProfileId) return;
+  var prefs = getProfilePrefs(state.activeProfileId) || {};
+  prefs.modeControls = prefs.modeControls || {};
+  prefs.modeControls[mode] = prefs.modeControls[mode] || {};
+  prefs.modeControls[mode][control] = value;
+  saveProfilePrefs(state.activeProfileId, prefs);
+}
+
+function applySavedModeControls(mode) {
+  if (!state.activeProfileId || !canvas.regState) return;
+  var V = window.CALM_MODES.get(mode);
+  if (!V || !V.applyControl) return;
+  var saved = getModeControls(state.activeProfileId)[mode] || {};
+  if (saved.mood) { try { V.applyControl(canvas.regState, 'mood', saved.mood); } catch (e) {} }
+  if (saved.character) { try { V.applyControl(canvas.regState, 'character', saved.character); } catch (e) {} }
+}
 
 function registryModeError(mode, err) {
   recordSignal('mode_error', { mode: mode, message: String(err).slice(0, 120) });
@@ -1279,6 +1301,10 @@ function switchToMode(index, via) {
   canvas.drawColor = canvas.accentRGB;
   clearCanvasFull();
   showModeIndicator();
+  // Style tray reflects the ACTIVE mode's controls — if it's open while the
+  // kid switches modes (tray or double-tap), keep it in sync rather than
+  // showing the stale previous mode's swatches/chips.
+  if (typeof styleTrayOpen !== 'undefined' && styleTrayOpen) renderStyleTray();
 }
 
 function cycleMode() {
@@ -2872,6 +2898,23 @@ function updateSoundUI() {
   }
 }
 
+// --- Panel Exclusivity (Task A4) ---
+//
+// Four corner buttons now open trays/panels that share the same anchor zone
+// (sound, modes, style — clear has no panel). closeOtherPanels(except) is the
+// single place that enforces "only one open at a time": each opener calls it
+// with its own name so it closes the other two, never itself. This replaces
+// the previous ad-hoc two-way closes (sound<->modes) with one function all
+// three openers share — behavior is identical, just no longer duplicated.
+function closeOtherPanels(except) {
+  if (except !== 'sound') {
+    soundPanelOpen = false;
+    $soundPanel.classList.remove('open');
+  }
+  if (except !== 'modes') closeModeTray();
+  if (except !== 'style') closeStyleTray();
+}
+
 // --- Sound Panel Toggle ---
 
 var soundPanelOpen = false;
@@ -2881,7 +2924,7 @@ $btnSound.addEventListener('click', function(e) {
   ensureAudioContext(); // iOS requires user gesture
   soundPanelOpen = !soundPanelOpen;
   $soundPanel.classList.toggle('open', soundPanelOpen);
-  if (soundPanelOpen) closeModeTray(); // panels share the corner anchor zone — one at a time
+  if (soundPanelOpen) closeOtherPanels('sound'); // panels share the corner anchor zone — one at a time
   if (soundPanelOpen) recordSignal('sound_panel_open', {});
   if (soundPanelOpen) renderSoundOptions();
   if (soundPanelOpen) renderMusicOptions();
@@ -2941,11 +2984,10 @@ $btnModes.addEventListener('click', function(e) {
   $btnModes.classList.toggle('active', modeTrayOpen);
   if (modeTrayOpen) {
     // Panels share the corner anchor zone — opening the tray closes the
-    // sound panel (and vice versa in $btnSound's handler). $btnSound's
-    // .active class reflects *playing* state, not panel state, so it is
-    // deliberately left alone here (same as the outside-click closer).
-    soundPanelOpen = false;
-    $soundPanel.classList.remove('open');
+    // other panels. $btnSound's .active class reflects *playing* state, not
+    // panel state, so it is deliberately left alone here (same as the
+    // outside-click closer).
+    closeOtherPanels('modes');
     renderModeOptions();
   }
 });
@@ -2967,6 +3009,100 @@ $modeOptions.addEventListener('click', function(e) {
   closeModeTray();
   renderModeOptions();
 });
+
+// --- Style Tray (Task A4) ---
+
+var $btnStyle = document.getElementById('btn-style');
+var $styleTray = document.getElementById('style-tray');
+var $styleMoods = document.getElementById('style-moods');
+var $styleChars = document.getElementById('style-chars');
+var $styleEmpty = document.getElementById('style-empty');
+var styleTrayOpen = false;
+
+function renderStyleTray() {
+  var mode = MODES[state.canvasMode];
+  var V = isRegistryMode(mode) ? window.CALM_MODES.get(mode) : null;
+  var $m = $styleMoods;
+  var $c = $styleChars;
+  var $e = $styleEmpty;
+  $m.textContent = ''; $c.textContent = '';
+  if (!V || !V.controls) {
+    $m.style.display = 'none'; $c.style.display = 'none'; $e.style.display = '';
+    return;
+  }
+  $e.style.display = 'none';
+  var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
+  $m.style.display = 'flex';
+  var lbl = document.createElement('span'); lbl.className = 'ctl-label'; lbl.textContent = 'Mood'; $m.appendChild(lbl);
+  V.controls.moods.forEach(function (mo, i) {
+    var b = document.createElement('button');
+    b.className = 'swatch' + ((saved.mood ? saved.mood === mo.id : i === 0) ? ' on' : '');
+    b.dataset.id = mo.id;
+    (mo.colors || []).slice(0, 4).forEach(function (hex) {
+      var d = document.createElement('span'); d.className = 'dot'; d.style.background = hex; b.appendChild(d);
+    });
+    var nm = document.createElement('span'); nm.className = 'swname'; nm.textContent = mo.name; b.appendChild(nm);
+    $m.appendChild(b);
+  });
+  $c.style.display = 'flex';
+  var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
+  lbl2.textContent = (V.controls.character && V.controls.character.label) || 'Style';
+  $c.appendChild(lbl2);
+  (V.controls.character ? V.controls.character.options : []).forEach(function (o, i) {
+    var b = document.createElement('button');
+    b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
+    b.dataset.id = o.id; b.textContent = o.name;
+    $c.appendChild(b);
+  });
+}
+
+// Hoisted so closeOtherPanels (defined earlier) and backToProfiles can call it.
+function closeStyleTray() {
+  styleTrayOpen = false;
+  $styleTray.classList.remove('open');
+  $btnStyle.classList.remove('active');
+}
+
+$btnStyle.addEventListener('click', function (e) {
+  e.stopPropagation();
+  styleTrayOpen = !styleTrayOpen;
+  $styleTray.classList.toggle('open', styleTrayOpen);
+  $btnStyle.classList.toggle('active', styleTrayOpen);
+  if (styleTrayOpen) {
+    closeOtherPanels('style');
+    renderStyleTray();
+  }
+});
+
+// Close tray on outside click
+document.addEventListener('click', function (e) {
+  if (styleTrayOpen && !$styleTray.contains(e.target) && e.target !== $btnStyle) {
+    closeStyleTray();
+  }
+});
+
+// Delegated control clicks (mood swatches + character chips)
+function handleStyleControlClick(e, kind) {
+  var btn = e.target.closest('[data-id]');
+  if (!btn) return;
+  var mode = MODES[state.canvasMode];
+  var id = btn.dataset.id;
+  if (!canvas.regState) return;
+  var V = window.CALM_MODES.get(mode);
+  if (!V || !V.applyControl) return;
+  try {
+    V.applyControl(canvas.regState, kind, id);
+  } catch (err) {
+    registryModeError(mode, err);
+    return;
+  }
+  saveModeControl(mode, kind, id);
+  recordSignal('mode_control', { mode: mode, control: kind, value: id });
+  renderStyleTray();
+}
+
+$styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });
+$styleChars.addEventListener('click', function (e) { handleStyleControlClick(e, 'character'); });
 
 // Play/pause
 $btnPlayPause.addEventListener('click', togglePlayPause);
@@ -2991,13 +3127,17 @@ document.addEventListener('visibilitychange', function() {
 
 function saveSoundPrefs() {
   if (!state.activeProfileId) return;
-  saveProfilePrefs(state.activeProfileId, {
-    soundId: audio.currentId,
-    soundPlaying: audio.playing,
-    musicId: audio.musicId,
-    musicPlaying: audio.musicPlaying,
-    volume: audio.volume,
-  });
+  // Mutate-and-write-back (not a fresh object): prefs also carries
+  // modeControls (Task A4) and potentially future keys. Overwriting
+  // wholesale here would silently erase them every time a sound/volume
+  // change fires — read current prefs first and only touch the sound keys.
+  var prev = getProfilePrefs(state.activeProfileId) || {};
+  prev.soundId = audio.currentId;
+  prev.soundPlaying = audio.playing;
+  prev.musicId = audio.musicId;
+  prev.musicPlaying = audio.musicPlaying;
+  prev.volume = audio.volume;
+  saveProfilePrefs(state.activeProfileId, prev);
 }
 
 function loadSoundPrefs() {
