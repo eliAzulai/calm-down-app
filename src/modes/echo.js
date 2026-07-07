@@ -67,8 +67,8 @@
   var SIZE_WOBBLE_HZ = 0.07;      // gentle size breathing, well under calm caps
   var SIZE_WOBBLE_AMP = 0.12;
 
-  var STAMP_DIST = 22;            // px of travel between stamps while dragging
-  var STAMP_TIME = 0.08;          // seconds between stamps while moving slowly (80ms)
+  var STAMP_DIST = 14;            // px of travel between stamps while dragging (tighter cadence)
+  var STAMP_TIME = 0.06;          // seconds between stamps while moving slowly (60ms)
   var COLOR_CYCLE_PX = 1400;      // px of travel for one full palette cycle
   var LUMA_WOBBLE = 0.10;         // slight luminance wobble per stamp (+-10%)
 
@@ -337,28 +337,72 @@
     return shadeRgb(rgb, wob);
   }
 
-  // Stamp the object's current geometry, opaquely, onto the stamp canvas.
+  // Trace the ring's closed path into the given 2D context (no fill/stroke
+  // applied here -- caller decides). Shared by the fill pass and the rim-glow
+  // passes so both always trace identical geometry.
+  function traceRingPath(sctx, ring) {
+    sctx.beginPath();
+    sctx.moveTo(ring[0][0], ring[0][1]);
+    for (var i = 1; i < ring.length; i++) sctx.lineTo(ring[i][0], ring[i][1]);
+    sctx.closePath();
+  }
+
+  // Layered rim-glow stroke widths/alphas (outer-to-inner order doesn't
+  // matter -- each stroke straddles the path independently). Increasing
+  // width + decreasing alpha reads as a soft outward light falloff rather
+  // than a hard ring: half of each stroke overlaps the already-opaque fill
+  // (invisible there), the outer half builds a soft same-hue color ramp
+  // past the fill's true edge.
+  var RIM_GLOW_PASSES = [
+    { width: 2, alpha: 0.45 },
+    { width: 4, alpha: 0.25 },
+    { width: 6, alpha: 0.12 }
+  ];
+
+  // Stamp the object's current geometry onto the stamp canvas: an opaque
+  // fill all the way to the path, plus a soft same-hue rim-glow that fades
+  // outward -- "the colour all the way to the edge but kind of faded out a
+  // little bit... looks like it's glowing" (client language). No darker
+  // outline ring: the rim passes reuse the fill's own rgb, never a shaded
+  // (darkened) variant, so there is nothing for the eye to read as a border.
   function stampObject(state, o) {
     var sctx = state.stampCtx;
     // size control (kid slider): each stamp gets its own independently-rolled
     // random factor when surprise sizes is on (a stamp is baked once and
     // never revisited, so per-stamp variety here is exactly "surprise" with
-    // no live jump); otherwise the plain continuous multiplier.
+    // no live jump); otherwise the plain continuous multiplier. The rim-glow
+    // strokes below trace this SAME ring, so they scale with sizeFactor too.
     var pts = buildRing(o, sizeFactor(state));
     var rgb = currentFillRgb(o);
 
     sctx.save();
-    sctx.beginPath();
-    sctx.moveTo(pts[0][0], pts[0][1]);
-    for (var i = 1; i < pts.length; i++) sctx.lineTo(pts[i][0], pts[i][1]);
-    sctx.closePath();
+    sctx.lineJoin = 'round';
+
+    // Pass 1: opaque fill, all the way to the path -- no gap, no separate
+    // darker line. This alone is a hard edge; pass 2 softens it.
+    traceRingPath(sctx, pts);
     sctx.fillStyle = rgbStr(rgb, 1);
     sctx.fill();
-    // thin, slightly-darker outline of the same hue for definition
-    sctx.lineWidth = 2;
-    sctx.lineJoin = 'round';
-    sctx.strokeStyle = rgbStr(shadeRgb(rgb, 0.68), 1);
-    sctx.stroke();
+
+    // Pass 2: rim glow, painted AFTER the fill with normal 'source-over'
+    // compositing (no destination-out) so it only ever ADDS soft color past
+    // the fill's edge -- it never erodes a neighboring stamp's opaque ink on
+    // overlap, preserving the archive's overwrite semantic (new stamp still
+    // fully covers old ink with its opaque core; only the new stamp's own
+    // soft rim blends further outward over whatever's already there, which
+    // is the "smoothed out" overlap the client asked for). Three strokes of
+    // the SAME fill color (never darkened) at increasing width and
+    // decreasing alpha straddle the path -- the inner half of each stroke
+    // sits under the opaque fill (invisible), the outer half ramps alpha
+    // down over a few pixels, reading as a gentle outward glow.
+    for (var i = 0; i < RIM_GLOW_PASSES.length; i++) {
+      var pass = RIM_GLOW_PASSES[i];
+      traceRingPath(sctx, pts);
+      sctx.lineWidth = pass.width;
+      sctx.strokeStyle = rgbStr(rgb, pass.alpha);
+      sctx.stroke();
+    }
+
     sctx.restore();
   }
 

@@ -315,6 +315,71 @@ await check('Orbits stays-mode is bounded and accumulates ink', async () => {
   return `bounded (maxTrail=${m.maxTrail}) + ink lit=${m.lit}`;
 });
 
+await check('Echo stamps have feathered glowing edges, no outline ring', async () => {
+  await page.evaluate(() => { switchToMode(MODES.indexOf('echo'), 'tray'); });
+  await page.waitForTimeout(300);
+  const box = await page.locator('#main-canvas').boundingBox();
+  await page.mouse.click(box.x + 400, box.y + 400); // single stamp
+  await page.waitForTimeout(500);
+  // ADAPTATION: sample the offscreen stampCanvas (the true archived-stamp
+  // pixels) rather than the composited #main-canvas. A single tap leaves the
+  // LIVE object sitting exactly on top of the stamp it just made, and the
+  // live object's own always-soft glow ring + lighter outline (drawLiveObject,
+  // unrelated to this task) dominates a main-canvas sample at that point --
+  // it satisfies "feather >= 2px, no dark ring" regardless of what
+  // stampObject() actually draws, making the check a false-positive pass
+  // against the pre-fix hard-edge+dark-outline stamp. Reading state.stampCanvas
+  // directly (same technique the "Orbits ink" check above uses for st.inkCanvas)
+  // isolates exactly what stampObject() painted, with zero live-object
+  // contamination -- this is what "no outline ring" and "feathered" must
+  // actually be verified against per the task's intent (the STAMP path).
+  const scan = await page.evaluate(() => {
+    const st = canvas.regState;
+    const sc = st.stampCanvas;
+    const sx = sc.getContext('2d');
+    const c = document.getElementById('main-canvas');
+    const dpr = c.width / c.clientWidth;
+    const cx = Math.round(400 * dpr), cy = Math.round(400 * dpr);
+    const d = sx.getImageData(cx, cy, Math.round(90 * dpr), 1).data; // horizontal ray from center
+    const px = [];
+    for (let i = 0; i < d.length; i += 4) px.push({ r: d[i], g: d[i+1], b: d[i+2], a: d[i+3] });
+    return px;
+  });
+  const lastSolid = scan.map((p, i) => p.a > 220 ? i : -1).reduce((m, v) => Math.max(m, v), -1);
+  let firstClear = -1;
+  for (let i = lastSolid + 1; i < scan.length; i++) { if (scan[i].a < 12) { firstClear = i; break; } }
+  if (lastSolid < 2) throw new Error('no solid interior found');
+  if (firstClear < 0) throw new Error('never reaches clear');
+  const feather = firstClear - lastSolid;
+  if (feather < 2) throw new Error('hard edge: feather=' + feather + 'px');
+  // ADAPTATION: the task-specified "interior" window (lastSolid-4..lastSolid)
+  // assumes the last a>220 pixel is flat fill, but a fully-opaque darker
+  // OUTLINE stroke (a=255, same as fill) sits right at that boundary -- so
+  // that window can sample the outline itself as "interior", which then lets
+  // the outline pass its own dark-ring check against itself. Sample the true
+  // flat-fill interior from deep in the ray (far from any edge stroke) instead,
+  // and scan for a dark ring across the WHOLE opaque-to-clear transition
+  // (not just the sub-220-alpha feather zone), since an opaque dark outline
+  // never enters that zone at all.
+  const lum = p => 0.2126*p.r + 0.7152*p.g + 0.0722*p.b;
+  const deepInterior = scan.slice(0, Math.min(10, lastSolid)).filter(p => p.a > 220);
+  if (deepInterior.length < 3) throw new Error('not enough deep-interior samples: ' + deepInterior.length);
+  const interiorLum = deepInterior.reduce((s, p) => s + lum(p), 0) / deepInterior.length;
+  // ADAPTATION: measured against the actual pre-fix outline (shadeRgb(rgb,
+  // 0.68)), the darkened ring's luminance ratio is ~0.68 -- comfortably above
+  // the task brief's illustrative 0.6 threshold, so 0.6 never trips on the
+  // real bug. Tightened to 0.85 (still well below 1.0, so legitimate AA/blend
+  // pixels on a same-hue feathered edge -- which only ever lighten or hold
+  // hue, never darken below the fill -- can't false-positive; see rim-glow
+  // pass 2 in echo.js, same color at lower alpha, not a darker shade).
+  const DARK_RING_LUM_RATIO = 0.85;
+  for (let i = deepInterior.length; i < firstClear; i++) {
+    const p = scan[i];
+    if (p.a > 40 && lum(p) < interiorLum * DARK_RING_LUM_RATIO) throw new Error(`dark ring at +${i - lastSolid}px (a=${p.a}): lum ${lum(p).toFixed(0)} vs interior ${interiorLum.toFixed(0)} (ratio ${(lum(p)/interiorLum).toFixed(2)})`);
+  }
+  return `feather=${feather}px, no dark ring`;
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };
