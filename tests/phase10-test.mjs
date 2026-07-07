@@ -503,6 +503,34 @@ await check('Dev summary surfaces top mode-control usage', async () => {
   return JSON.stringify(summary.controlCounts).slice(0, 60);
 });
 
+// --- Task A11: dev-configurable per-mode defaults (three-tier fallback) ---
+
+await check('Dev default mood applies when kid has no saved choice', async () => {
+  // am2 (second seeded profile) is entered here for the first time in this
+  // file -- am1 has done all the mood/character/size/trace picking above, so
+  // am2 is guaranteed clean of any kid-saved bloom.mood (confirmed via grep:
+  // no check in this file ever clicks am2's profile card before this one).
+  await page.evaluate(() => {
+    var controls = getDevControls();
+    controls['am2'] = Object.assign({}, controls['am2'], { modeDefaults: { bloom: { mood: 'tropical' } } });
+    saveDevControls(controls);
+  });
+  await page.click('#btn-back'); await page.waitForSelector('#screen-profiles.active');
+  await page.locator('.profile-card.filled').nth(1).click(); await page.waitForSelector('#screen-canvas.active');
+  // Setting state.canvasMode directly (not via switchToMode) still exercises
+  // the real fallback chain here: enterProfile() resets canvas.regId = null
+  // on every profile entry (src/app.js:683), and tickCanvas's per-frame
+  // ensureRegState(mode) call (src/app.js:897) reinitializes + calls
+  // applySavedModeControls(mode) whenever canvas.regId !== mode -- which is
+  // true right after this fresh am2 entry, so the next animation frame drives
+  // the production init -> applySavedModeControls path, not a test-only stub.
+  await page.evaluate(() => { state.canvasMode = MODES.indexOf('bloom'); });
+  await page.waitForTimeout(300);
+  const mood = await page.evaluate(() => canvas.regState.moodId);
+  if (mood !== 'tropical') throw new Error('mood=' + mood);
+  return 'dev default applied';
+});
+
 console.log(`\nPhase 10: ${passed}/${passed + failed} checks passed`);
 await browser.close();
 process.exit(failed ? 1 : 0);

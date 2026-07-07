@@ -860,11 +860,24 @@ function applySavedModeControls(mode) {
   var V = window.CALM_MODES.get(mode);
   if (!V || !V.applyControl) return;
   var saved = getModeControls(state.activeProfileId)[mode] || {};
-  if (saved.mood) { try { V.applyControl(canvas.regState, 'mood', saved.mood); } catch (e) {} }
-  if (saved.character) { try { V.applyControl(canvas.regState, 'character', saved.character); } catch (e) {} }
-  if (saved.size) { try { V.applyControl(canvas.regState, 'size', saved.size); } catch (e) {} }
-  if (saved.sizeRandom !== undefined) { try { V.applyControl(canvas.regState, 'sizeRandom', saved.sizeRandom); } catch (e) {} }
-  if (saved.trace) { try { V.applyControl(canvas.regState, 'trace', saved.trace); } catch (e) {} }
+  // Task A11: three-tier fallback -- kid's saved choice > dev default > mode's
+  // built-in default. Dev defaults live at getProfileDevControl(...).modeDefaults[mode]
+  // (set via the dev card, see saveControlsFromUI); a kid's own saved pick
+  // always wins when present, and when neither is set the field is simply
+  // never applied, leaving the registry mode's own init default in place.
+  var devDefaults = (getProfileDevControl(state.activeProfileId).modeDefaults || {})[mode] || {};
+  var effective = {
+    mood: saved.mood || devDefaults.mood,
+    character: saved.character || devDefaults.character,
+    size: saved.size || devDefaults.size,
+    sizeRandom: (saved.sizeRandom !== undefined) ? saved.sizeRandom : devDefaults.sizeRandom,
+    trace: saved.trace || devDefaults.trace,
+  };
+  if (effective.mood) { try { V.applyControl(canvas.regState, 'mood', effective.mood); } catch (e) {} }
+  if (effective.character) { try { V.applyControl(canvas.regState, 'character', effective.character); } catch (e) {} }
+  if (effective.size) { try { V.applyControl(canvas.regState, 'size', effective.size); } catch (e) {} }
+  if (effective.sizeRandom !== undefined) { try { V.applyControl(canvas.regState, 'sizeRandom', effective.sizeRandom); } catch (e) {} }
+  if (effective.trace) { try { V.applyControl(canvas.regState, 'trace', effective.trace); } catch (e) {} }
 }
 
 function registryModeError(mode, err) {
@@ -3715,6 +3728,33 @@ function renderDevProfiles() {
   });
 }
 
+// Task A11: dev-configurable per-mode defaults. Builds the <option> markup
+// for the mood/character selects of whichever registry mode is currently
+// picked in the modeDefaultsMode dropdown -- reused both at initial card
+// render and on that dropdown's change handler (see renderDevControls below).
+// echo/etch have no controls.moods/controls.character at all (see registry
+// contract in modes/*.js), so both selects degrade to just the placeholder.
+function modeDefaultControlOptionsHTML(mode, entry) {
+  var V = window.CALM_MODES ? window.CALM_MODES.get(mode) : null;
+  var moodOptions = '<option value="">Mode default</option>';
+  var charOptions = '<option value="">Mode default</option>';
+  if (V && V.controls) {
+    if (V.controls.moods) {
+      moodOptions += V.controls.moods.map(function(m) {
+        var selected = entry.mood === m.id ? ' selected' : '';
+        return '<option value="' + escapeHTML(m.id) + '"' + selected + '>' + escapeHTML(m.name) + '</option>';
+      }).join('');
+    }
+    if (V.controls.character && V.controls.character.options) {
+      charOptions += V.controls.character.options.map(function(o) {
+        var selected = entry.character === o.id ? ' selected' : '';
+        return '<option value="' + escapeHTML(o.id) + '"' + selected + '>' + escapeHTML(o.name) + '</option>';
+      }).join('');
+    }
+  }
+  return { moodOptions: moodOptions, charOptions: charOptions };
+}
+
 function renderDevControls() {
   $devControls.textContent = '';
   var profiles = getValidProfiles();
@@ -3746,6 +3786,21 @@ function renderDevControls() {
       return '<option value="' + rate + '"' + selected + '>' + label + '</option>';
     }).join('');
 
+    // Task A11: mode-defaults editor. Dev-grade simple -- one mode edited at
+    // a time via a picker, not a full per-mode grid (see task brief). Only
+    // registry modes have applyControl/moods/character, so the mode picker
+    // is scoped to window.CALM_MODES.list (echo/currents/orbits/mandala/
+    // bloom/morph/etch), never the 5 legacy canvas modes.
+    var modeDefaults = control.modeDefaults || {};
+    var mdModeList = (window.CALM_MODES && window.CALM_MODES.list) || [];
+    var mdSavedModes = Object.keys(modeDefaults);
+    var mdInitialMode = (mdSavedModes.length && mdModeList.indexOf(mdSavedModes[0]) >= 0) ? mdSavedModes[0] : mdModeList[0];
+    var mdModeOptions = mdModeList.map(function(m) {
+      var selected = m === mdInitialMode ? ' selected' : '';
+      return '<option value="' + escapeHTML(m) + '"' + selected + '>' + escapeHTML(MODE_LABELS[m] || m) + '</option>';
+    }).join('');
+    var mdFields = modeDefaultControlOptionsHTML(mdInitialMode, modeDefaults[mdInitialMode] || {});
+
     var card = document.createElement('div');
     card.className = 'dev-control-card';
     card.dataset.profileId = profile.id;
@@ -3773,8 +3828,34 @@ function renderDevControls() {
       '</label>' +
       '<label>Visual reactivity' +
         '<input data-dev-control="visualReactivity" type="checkbox"' + (control.visualReactivity === false ? '' : ' checked') + '>' +
+      '</label>' +
+      '<label>Mode Defaults — Mode' +
+        '<select data-dev-control="modeDefaultsMode">' + mdModeOptions + '</select>' +
+      '</label>' +
+      '<label>Mode Defaults — Mood' +
+        '<select data-dev-control="modeDefaultMood">' + mdFields.moodOptions + '</select>' +
+      '</label>' +
+      '<label>Mode Defaults — Character' +
+        '<select data-dev-control="modeDefaultCharacter">' + mdFields.charOptions + '</select>' +
       '</label>';
     $devControls.appendChild(card);
+
+    // Swapping the mode picker must refresh the mood/character options to
+    // match the newly picked mode's own registry controls (and preload that
+    // mode's already-saved default, if any) -- mirrors no existing precedent
+    // 1:1 (entrainmentRate etc. don't cascade), but follows the same
+    // in-place-update-no-full-rebuild discipline renderStyleTray's sibling
+    // handlers use, applied here to a select instead of chip classes.
+    var mdModeSelect = card.querySelector('[data-dev-control="modeDefaultsMode"]');
+    var mdMoodSelect = card.querySelector('[data-dev-control="modeDefaultMood"]');
+    var mdCharSelect = card.querySelector('[data-dev-control="modeDefaultCharacter"]');
+    if (mdModeSelect) {
+      mdModeSelect.addEventListener('change', function() {
+        var newFields = modeDefaultControlOptionsHTML(mdModeSelect.value, modeDefaults[mdModeSelect.value] || {});
+        mdMoodSelect.innerHTML = newFields.moodOptions;
+        mdCharSelect.innerHTML = newFields.charOptions;
+      });
+    }
   });
 }
 
@@ -3844,6 +3925,9 @@ function saveControlsFromUI() {
     var entrainmentRate = card.querySelector('[data-dev-control="entrainmentRate"]').value;
     var sfxEnabled = card.querySelector('[data-dev-control="sfxEnabled"]').checked;
     var visualReactivity = card.querySelector('[data-dev-control="visualReactivity"]').checked;
+    var mdModeSel = card.querySelector('[data-dev-control="modeDefaultsMode"]');
+    var mdMoodSel = card.querySelector('[data-dev-control="modeDefaultMood"]');
+    var mdCharSel = card.querySelector('[data-dev-control="modeDefaultCharacter"]');
     var profileControl = {};
     var delaySeconds = Number(delayInput);
 
@@ -3858,6 +3942,26 @@ function saveControlsFromUI() {
     // Inverted vs sfxEnabled: default ON, so only store the key when the kid
     // card is unchecked (absent = on), keeping the blob minimal.
     if (!visualReactivity) profileControl.visualReactivity = false;
+    // Task A11: MERGE into modeDefaults, never clobber. The UI only edits
+    // ONE mode at a time (whichever the modeDefaultsMode picker is on), so
+    // start from the profile's EXISTING modeDefaults (read fresh from
+    // storage, unaffected by this in-progress rebuild of `controls`) and
+    // only overwrite the currently-picked mode's entry -- every other mode's
+    // saved defaults, and every sibling profile's whole dev-control blob
+    // (rebuilt independently per card in this same loop), survive untouched.
+    var existingModeDefaults = getProfileDevControl(profileId).modeDefaults || {};
+    var modeDefaults = Object.assign({}, existingModeDefaults);
+    if (mdModeSel && mdModeSel.value) {
+      var mdMode = mdModeSel.value;
+      var mdEntry = Object.assign({}, modeDefaults[mdMode]);
+      var mdMood = mdMoodSel ? mdMoodSel.value : '';
+      var mdChar = mdCharSel ? mdCharSel.value : '';
+      if (mdMood) mdEntry.mood = mdMood; else delete mdEntry.mood;
+      if (mdChar) mdEntry.character = mdChar; else delete mdEntry.character;
+      if (Object.keys(mdEntry).length) modeDefaults[mdMode] = mdEntry;
+      else delete modeDefaults[mdMode];
+    }
+    if (Object.keys(modeDefaults).length) profileControl.modeDefaults = modeDefaults;
     controls[profileId] = profileControl;
   });
   saveDevControls(controls);
