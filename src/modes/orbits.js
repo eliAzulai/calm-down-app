@@ -102,7 +102,13 @@
   // targetLife closely instead of trailing it — together these bring total
   // dispersal-to-gone under the 3s ceiling (~2.8s measured).
   var DISPERSE_DURATION = 2.2; // seconds to fade out after persist window ends (was 8)
-  var TRAIL_LEN = 4; // stored points per particle trail (pass3 trail-trim: was 8)
+  // Task A8 (ghost-trail eradication): client still read orbits as "slightly
+  // smeary" post-touch at TRAIL_LEN=4 -- one more parameter step, halved to 2.
+  // Trail points are length-bound only (no per-point age/timestamp field --
+  // see the trail.push/shift site below), so this LEN cut is the whole fix;
+  // comets keep their existing +4 bonus (trailLen: isComet ? TRAIL_LEN+4 :
+  // TRAIL_LEN below) unchanged, per plan.
+  var TRAIL_LEN = 2; // stored points per particle trail (pass3 trail-trim: was 8, then 4)
   var TRAIL_SAMPLE_DT = 0.045; // seconds between trail samples
   var COMET_CHANCE = 1 / 15;
   var HOLD_TIGHTEN = 0.30; // orbits tighten up to 30% while held

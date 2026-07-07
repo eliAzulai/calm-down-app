@@ -380,6 +380,53 @@ await check('Echo stamps have feathered glowing edges, no outline ring', async (
   return `feather=${feather}px, no dark ring`;
 });
 
+await check('All modes drain to clean canvas (fades)', async () => {
+  const dirty = [];
+  for (const m of ['trails','particles','ripples','geometric','currents','orbits','mandala','bloom','morph']) {
+    await page.evaluate((mm) => { switchToMode(MODES.indexOf(mm), 'tray'); }, m);
+    await page.waitForTimeout(250);
+    await page.evaluate(() => {
+      const mode = MODES[state.canvasMode];
+      if (isRegistryMode(mode)) {
+        const V = window.CALM_MODES.get(mode);
+        if (V.applyControl) { try { V.applyControl(canvas.regState, 'trace', 'fades'); } catch (e) {} }
+      }
+    });
+    const box = await page.locator('#main-canvas').boundingBox();
+    await page.mouse.move(box.x + 200, box.y + 250); await page.mouse.down();
+    for (let k = 0; k < 12; k++) { await page.mouse.move(box.x + 200 + k * 25, box.y + 250 + Math.sin(k) * 60); await page.waitForTimeout(40); }
+    await page.mouse.up();
+    await page.waitForTimeout(6500);
+    const lit = await page.evaluate(() => {
+      const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+      const d = x.getImageData(0, 0, c.width, c.height).data;
+      let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+      return n;
+    });
+    // Per-mode budgets (Task A8 residue-vs-ambient-life reconciliation -- see
+    // commit body for the instrumented probe numbers behind each). trails/
+    // particles/ripples/geometric have zero by-design ambient decor, so they
+    // keep the strict default budget-8 -- this is what actually proves the
+    // veil fix (these four go from fully opaque/7865 pre-fix to single
+    // digits post-fix). bloom/morph/orbits/mandala/currents each have
+    // documented, intentional idle/persistence behavior (idle sparks, ambient
+    // motes, 14-20s touch-shape lifespans) that legitimately still lights
+    // pixels within this check's 6.5s window -- budgets set generously above
+    // multi-sample probe ceilings (18 morph samples: 71-151; 5 currents
+    // samples: 12-31; 5 orbits samples + check runs: 109-165) since idle
+    // spawn/duet-pairing timing is probabilistic (Math.random()-gated) and a
+    // single sample undersells the tail. Still nowhere near the pre-fix
+    // opaque-canvas value (7865), so a real regression still trips these.
+    const AMBIENT_BUDGET = { bloom: 60, morph: 300, orbits: 200, mandala: 40, currents: 45 };
+    const budget = AMBIENT_BUDGET[m] || 8;
+    if (lit > budget) dirty.push(`${m}=${lit}(>${budget})`);
+    await page.click('#btn-clear');
+    await page.waitForTimeout(300);
+  }
+  if (dirty.length) throw new Error('residue: ' + dirty.join(','));
+  return 'all 9 fade modes drain clean';
+});
+
 await check('Mode error isolation falls back to trails', async () => {
   await page.evaluate(() => {
     window.VARIANTS.morph.tick = function () { throw new Error('boom'); };

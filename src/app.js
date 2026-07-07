@@ -889,22 +889,33 @@ function tickCanvas(now) {
       registryModeError(mode, err);
     }
   } else if (mode === 'trails') {
-    ctx.fillStyle = 'rgba(13, 27, 42, 0.03)';
-    ctx.fillRect(0, 0, w, h);
+    // Ghost-trail eradication (Task A8): painting a translucent BACKGROUND-COLOR
+    // veil composites toward-but-never-to the background, leaving a permanent
+    // faint smear (client-flagged "lighter grey trails"). destination-out
+    // erases existing pixel alpha instead of compositing an opaque color
+    // underneath, so trails genuinely drain to transparency (the #0d1b2a
+    // screen behind #main-canvas shows through cleanly). Matches the registry
+    // modes' validated idiom (see currents.js/orbits.js residue-fix notes).
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.06)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
     renderTrails(ctx, dt);
   } else if (mode === 'drawing') {
-    renderDrawing(ctx);
+    renderDrawing(ctx); // no veil by design -- freeform drawing persists until Clear
   } else if (mode === 'geometric') {
-    ctx.fillStyle = 'rgba(13, 27, 42, 0.04)';
-    ctx.fillRect(0, 0, w, h);
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.06)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
     renderGeometric(ctx, dt, w, h);
   } else if (mode === 'particles') {
-    ctx.fillStyle = 'rgba(13, 27, 42, 0.15)';
-    ctx.fillRect(0, 0, w, h);
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
     renderParticles(ctx, dt, w, h);
   } else if (mode === 'ripples') {
-    ctx.fillStyle = 'rgba(13, 27, 42, 0.15)';
-    ctx.fillRect(0, 0, w, h);
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
     renderRipples(ctx, dt, w, h);
   }
 
@@ -1382,11 +1393,18 @@ $btnClear.addEventListener('click', function() {
 
 function clearCanvasFull() {
   if (!canvas.ctx) return;
-  // Save and reset transform so we fill the entire buffer
+  // Save and reset transform so we clear the entire buffer.
+  // Ghost-trail eradication (Task A8): this used to fillRect an OPAQUE
+  // '#0d1b2a' bg-color veil directly onto the canvas element. That painted a
+  // real opaque pixel layer that every registry mode's destination-out erase
+  // would then be fading TOWARD (an opaque color) instead of toward true
+  // transparency -- defeating the whole veil fix the moment a kid tapped
+  // Clear. clearRect restores true transparency so the #0d1b2a screen behind
+  // #main-canvas shows through directly, matching what destination-out erases
+  // toward on every subsequent frame.
   canvas.ctx.save();
   canvas.ctx.setTransform(1, 0, 0, 1, 0, 0);
-  canvas.ctx.fillStyle = '#0d1b2a';
-  canvas.ctx.fillRect(0, 0, $mainCanvas.width, $mainCanvas.height);
+  canvas.ctx.clearRect(0, 0, $mainCanvas.width, $mainCanvas.height);
   canvas.ctx.restore();
 
   if (isRegistryMode(MODES[state.canvasMode])) {

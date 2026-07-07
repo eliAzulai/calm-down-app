@@ -336,12 +336,15 @@
     // "movement afterglow" that lingered past the client's 1s hold budget).
     // Raised to 0.16 so the same ~1% floor is reached in ~26 frames / ~0.43s,
     // giving real margin under the 1s trace-hold ceiling even with overlap.
+    // Task A8 (ghost-trail eradication): client still read currents as
+    // "slightly smeary" post-touch even at 0.16 -- one more parameter step,
+    // raised to 0.20 so the ~1% floor is reached in ~20 frames / ~0.33s.
     // Trace control (kid chip): 'stays' skips this erase entirely so rivers
     // freeze into painted trails until Clear; 'fades' (default) is the
     // pre-existing behavior, untouched.
     if (state.traceMode !== 'stays') {
       ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.fillStyle = 'rgba(0,0,0,0.20)';
       ctx.fillRect(0, 0, w, h);
       ctx.globalCompositeOperation = 'source-over';
     }
@@ -421,7 +424,11 @@
       // lingering trace for close to 1s before its fade-to-zero even began.
       // Trimmed to 1.6s so a particle's dissolve completes well inside the
       // policy's 2-3s fade-to-zero window once it starts.
-      var tailWindow = 1.6;
+      // Task A8 (ghost-trail eradication): one more parameter step alongside
+      // the veil bump above -- trimmed to 1.2s so the comet tail's own
+      // dissolve completes even faster, removing the last bit of "slightly
+      // smeary" the client still read at 1.6s.
+      var tailWindow = 1.2;
       var tailT = clamp((p.maxLife - p.life) / tailWindow, 0, 1); // 1 -> 0 across the tail
       // sine ripple riding the tail so dissolution undulates rather than
       // evaporating linearly; ripple itself fully collapses to 0 at tailT=0
