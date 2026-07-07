@@ -142,10 +142,13 @@ Design spec: `docs/superpowers/specs/2026-05-04-preference-signals-control-loop-
 ---
 
 ## Backlog (Future)
-- [ ] Touch-responsive audio (touch affects pitch/tone) — needs testing with kids
+- [ ] Touch-responsive audio (touch affects pitch/tone) — needs testing with kids. VISUAL direction shipped instead: the Animation Sensory Pass's `CALM_VIS` energy feed makes the canvas breathe with the soundscape (registry modes read a smoothed 0-1 audio-reactive multiplier, dev kill-switch available). AUDIO direction (touch driving pitch/tone) remains open.
 - [ ] Screenshot / save canvas art
 - [ ] Shake device to scatter particles
 - [ ] Points / unlockables system
 - [ ] Streak tracking
 - [x] ~~Lo-fi beats (embedded audio or procedural)~~ → shipped as Soundscape 2.0 music layer (see docs/superpowers/specs/2026-07-03-soundscape-2.0-design.md)
 - [ ] Separate TSG app for 4 skills & roles
+- [ ] Bloom: additional form families / richer parastichy beyond the current spiral pattern
+- [ ] Aurora mode revival with swirl physics
+- [ ] Per-mode SFX pairings (ties to the Soundscape SFX layer — a soft accent sound per registry mode)

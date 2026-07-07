@@ -22,13 +22,14 @@ npx vercel --prod  # project: calm-station, deploys src/ directory
 
 ## Architecture
 
-Vanilla JS, no framework, no bundler. Three source files do everything:
+Vanilla JS, no framework, no bundler. Three core source files plus the animation mode registry do everything:
 
 | File | Lines | Role |
 |------|-------|------|
 | `src/index.html` | ~200 | HTML shell with all screen containers and overlays |
-| `src/app.js` | ~2470 | All logic: state, canvas rendering, audio, exercises, parent dashboard |
-| `src/styles.css` | ~1520 | CSS design system, themes, all component styles |
+| `src/app.js` | ~4280 | All logic: state, canvas rendering, audio, exercises, parent dashboard |
+| `src/styles.css` | ~1800 | CSS design system, themes, all component styles |
+| `src/modes/` | 7 files + `registry.js` | Animation mode registry — one file per registry mode (`echo.js`, `currents.js`, `orbits.js`, `mandala.js`, `bloom.js`, `morph.js`, `etch.js`), each registering into `window.VARIANTS`; `registry.js` exposes `window.CALM_MODES` (list/get) and the shared `window.CALM_VIS` energy feed |
 
 Supporting files: `manifest.json`, `sw.js` (service worker), `icon-192.svg`, `icon-512.svg`.
 
@@ -39,7 +40,7 @@ Screens are always in the DOM. Only `.screen.active` is visible (400ms CSS trans
 Central `state` object + `setState(updates)` that calls `render()`. No virtual DOM — direct DOM manipulation via `textContent`, `classList`, `style`.
 
 ### Canvas Rendering
-Full-viewport `<canvas>` with `requestAnimationFrame` loop. 5 visual modes cycled by double-tap: finger trails, particles, ripples, geometric patterns, freeform drawing. Multi-touch via Pointer Events API.
+Full-viewport `<canvas>` with `requestAnimationFrame` loop. 12 visual modes: 7 registry modes (`src/modes/echo.js`, `currents.js`, `orbits.js`, `mandala.js`, `bloom.js`, `morph.js`, `etch.js`, loaded via `src/modes/registry.js` as `window.CALM_MODES`) plus 5 legacy modes built into `app.js` (finger trails, particles, ripples, geometric patterns, freeform drawing). Switch modes via the mode tray (grid icon, lists all 12) or double-tap cycling — both call the same `switchToMode()`. Registry modes additionally get a kid-facing style tray (paint-swatch icon) with up to four per-mode controls — Mood, Character, Size, Trace (fades vs. stays) — persisted per profile; legacy modes and etch/echo hide the controls that don't apply to them. Canvas rendering is also audio-reactive: an `AnalyserNode` tap on the master gain feeds a smoothed 0-1 `window.CALM_VIS.energy` value that registry modes read as a bounded multiplier, with a per-profile dev kill-switch (`visualReactivity`, default on) to zero it out for testing/comparison. Multi-touch via Pointer Events API.
 
 ### Audio
 Web Audio API, three layer buses (music/ambient/sfx) into a master gain. Music: 3 precached MP3 tracks (src/audio/music/) as seamless AudioBuffer loops, one decoded at a time. Ambient: 4 procedural generators tuned to A=432. SFX + entrainment are per-profile dev-gated experiments (?dev=true). AudioContext created on first user gesture (iOS requirement). 500ms crossfades; ambient auto-ducks under music.
