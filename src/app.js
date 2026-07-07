@@ -245,6 +245,7 @@ function computeSignalSummary(profileId) {
   var promptOpened = 0;
   var promptIgnored = 0;
   var exerciseCompleted = 0;
+  var controlCounts = {};
   var sessions = 0;
   var completedSessions = 0;
   var totalSessionSeconds = 0;
@@ -297,6 +298,10 @@ function computeSignalSummary(profileId) {
     if (event.type === 'prompt_opened') promptOpened += 1;
     if (event.type === 'prompt_ignored') promptIgnored += 1;
     if (event.type === 'exercise_completed') exerciseCompleted += 1;
+    if (event.type === 'mode_control') {
+      var key = (payload.mode || '?') + ':' + (payload.control || '?');
+      controlCounts[key] = (controlCounts[key] || 0) + 1;
+    }
   });
 
   var topMode = Object.keys(modeTime).sort(function(a, b) {
@@ -326,6 +331,7 @@ function computeSignalSummary(profileId) {
     promptOpened: promptOpened,
     promptIgnored: promptIgnored,
     exerciseCompleted: exerciseCompleted,
+    controlCounts: controlCounts,
   };
 }
 
@@ -3680,6 +3686,15 @@ function renderDevProfiles() {
     var mt = getMusicTrack(summary.topMusic);
     var musicName = summary.topMusic === 'off' ? 'Stopped' : (mt ? mt.name : summary.topMusic);
     var musicUse = summary.topMusic ? musicName + ' (' + summary.musicCounts[summary.topMusic] + ')' : 'No music use yet';
+    var topControlKey = Object.keys(summary.controlCounts).sort(function(a, b) {
+      return summary.controlCounts[b] - summary.controlCounts[a];
+    })[0] || null;
+    var topControl = '—';
+    if (topControlKey) {
+      var controlParts = topControlKey.split(':');
+      var controlModeLabel = MODE_LABELS[controlParts[0]] || controlParts[0];
+      topControl = controlModeLabel + ' · ' + controlParts[1];
+    }
 
     var card = document.createElement('div');
     card.className = 'dev-profile-card';
@@ -3691,6 +3706,7 @@ function renderDevProfiles() {
         devStat(topModeTime, 'Top Mode Time') +
         devStat(soundUse, 'Sound Use') +
         devStat(musicUse, 'Top Music') +
+        devStat(topControl, 'Top Control') +
         devStat(summary.promptOpened, 'Prompt Opens') +
       '</div>';
     $devProfiles.appendChild(card);

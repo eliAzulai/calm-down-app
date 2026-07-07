@@ -481,6 +481,28 @@ await check('Dev kill-switch zeroes reactivity', async () => {
   return 'killed';
 });
 
+await check('Dev summary surfaces top mode-control usage', async () => {
+  // ADAPTATION: computeSignalSummary(profileId) takes a profile id and reads
+  // signals internally (readSignals(profileId) at src/app.js:240) -- it does
+  // NOT accept an events array. Confirmed via grep: both real call sites
+  // (renderDevProfiles line 3676, exportSignalData line 3810) pass
+  // profile.id, never readSignals(...). Profile am1 is the only profile
+  // entered anywhere in this file (am2 seeded but never clicked), and every
+  // control-applying check above that goes through the real UI handler --
+  // "Control choice applies..." (2x mood clicks), "Size slider UI
+  // persists..." (1x debounced slider), "Trace chip renders..." (1x trace
+  // chip click) -- runs against it and records mode_control signals for it
+  // (the two checks that call applyControl(...) directly via page.evaluate,
+  // bypassing the UI, do NOT record signals -- only clicks/slider-input do).
+  // So am1 already has >= 4 mode_control signals by this point in the file;
+  // calling computeSignalSummary('am1') directly is the correct, honest form.
+  const summary = await page.evaluate(() => computeSignalSummary('am1'));
+  if (!summary.controlCounts) throw new Error('no controlCounts in summary');
+  const total = Object.values(summary.controlCounts).reduce((a, b) => a + b, 0);
+  if (total < 2) throw new Error('controls not counted: ' + JSON.stringify(summary.controlCounts));
+  return JSON.stringify(summary.controlCounts).slice(0, 60);
+});
+
 console.log(`\nPhase 10: ${passed}/${passed + failed} checks passed`);
 await browser.close();
 process.exit(failed ? 1 : 0);
