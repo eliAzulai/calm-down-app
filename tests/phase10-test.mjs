@@ -62,13 +62,22 @@ await check('New modes render pixels via double-tap cycling', async () => {
     await page.mouse.move(box.x + 200, box.y + 300); await page.mouse.down();
     for (let k = 0; k < 8; k++) { await page.mouse.move(box.x + 200 + k * 30, box.y + 300 + k * 12); await page.waitForTimeout(40); }
     await page.mouse.up();
-    await page.waitForTimeout(500);
-    results[mode] = await page.evaluate(() => {
-      const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
-      const d = x.getImageData(0, 0, c.width, c.height).data;
-      let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
-      return n;
-    });
+    // Poll until the mode has painted, rather than sampling at a fixed instant:
+    // bloom builds its ordered pattern slowly and sparsely (bud->open lifecycle),
+    // so a fixed 500ms wait races it. Pass as soon as it lights up; a genuinely
+    // dead mode never crosses the threshold and still fails after the budget.
+    let lit = 0;
+    for (let t = 0; t < 16; t++) { // up to ~2.4s at 150ms steps
+      lit = await page.evaluate(() => {
+        const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+        const d = x.getImageData(0, 0, c.width, c.height).data;
+        let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+        return n;
+      });
+      if (lit >= 3) break;
+      await page.waitForTimeout(150);
+    }
+    results[mode] = lit;
     await page.mouse.dblclick(box.x + 200, box.y + 300);
     await page.waitForTimeout(350);
   }
