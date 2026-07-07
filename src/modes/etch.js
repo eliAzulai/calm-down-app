@@ -481,14 +481,22 @@
     var phase = (pt.arc - PULSE_SPEED * (state.clock / 1000)) / PULSE_WAVELENGTH * Math.PI * 2;
     var wave = 0.5 + 0.5 * Math.sin(phase);
     var brightness = 1 - PULSE_DEPTH + PULSE_DEPTH * wave; // in [1-depth, 1]
+    // Audio-reactive nudge (Task A9): +20% max on the pulse's brightness
+    // peak, clamped to 1.2 (base max 1 * 1.2 = 1.2) so silence (E=0) leaves
+    // brightness exactly untouched and the boosted peak can't exceed +20%.
+    var E = (window.CALM_VIS && window.CALM_VIS.energy) || 0;
+    brightness = Math.min(1.2, brightness * (1 + 0.2 * E));
 
     // slow color drift along the stroke (arc-keyed, not time-keyed) plus the
     // stroke's own palette base index.
     var colT = (st.colorBase / PALETTE.length) + (pt.arc / Math.max(1, totalArc || 1)) * st.colorDrift;
     var rgb = paletteColor(colT);
 
-    var coreAlpha = 0.85 * brightness * alphaMul;
-    var haloAlpha = 0.30 * brightness * alphaMul;
+    // Clamped explicitly (not left to the canvas's implicit alpha clamp)
+    // since brightness can now peak at 1.2 (see the audio-reactive nudge
+    // above) -- 0.85/0.30 are each this bead's own designed alpha ceilings.
+    var coreAlpha = Math.min(0.85, 0.85 * brightness * alphaMul);
+    var haloAlpha = Math.min(0.30, 0.30 * brightness * alphaMul);
 
     // wide soft halo first (dual-layer glow, cheap — no shadowBlur)
     ctx.beginPath();

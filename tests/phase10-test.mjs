@@ -450,6 +450,37 @@ await check('No console errors (excluding intentional sabotage)', async () => {
   return 'clean';
 });
 
+// --- Task A9: audio-reactive visual energy feed (CALM_VIS) ---
+
+await check('CALM_VIS.energy rises with music, decays in silence', async () => {
+  // Reset state: the mode-error-isolation check above sabotages morph.tick
+  // and leaves state.canvasMode on 'trails' (fallback) -- harmless here since
+  // this check only needs the sound panel, not any particular canvas mode.
+  await page.click('#btn-sound'); await page.waitForSelector('#sound-panel.open');
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForFunction(() => audio.musicPlaying === true, null, { timeout: 10000 });
+  await page.waitForFunction(() => window.CALM_VIS.energy > 0.05, null, { timeout: 5000 });
+  const on = await page.evaluate(() => CALM_VIS.energy);
+  await page.click('#music-options .sound-option[data-music="bowls"]'); // toggle off
+  await page.waitForFunction(() => window.CALM_VIS.energy < 0.02, null, { timeout: 8000 });
+  return `on=${on.toFixed(3)}`;
+});
+
+await check('Dev kill-switch zeroes reactivity', async () => {
+  await page.evaluate(() => {
+    var controls = getDevControls();
+    controls['am1'] = Object.assign({}, controls['am1'], { visualReactivity: false });
+    saveDevControls(controls);
+    applyVisualReactivity('am1');
+  });
+  await page.click('#music-options .sound-option[data-music="bowls"]');
+  await page.waitForFunction(() => audio.musicPlaying === true, null, { timeout: 10000 });
+  await page.waitForTimeout(1500);
+  const e = await page.evaluate(() => CALM_VIS.energy);
+  if (e !== 0) throw new Error('energy=' + e);
+  return 'killed';
+});
+
 console.log(`\nPhase 10: ${passed}/${passed + failed} checks passed`);
 await browser.close();
 process.exit(failed ? 1 : 0);

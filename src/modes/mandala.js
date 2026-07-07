@@ -475,13 +475,19 @@
     var pts = sp.pts;
     if (pts.length < 2) return;
 
+    // Audio-reactive visual energy (Task A9): one bounded multiplier applied
+    // at draw time only, so silence (E=0) is exactly neutral.
+    var E = (window.CALM_VIS && window.CALM_VIS.energy) || 0;
+
     var lifeT = clamp(sp.age / sp.life, 0, 1);
     var env = fadeEnvelope(lifeT, sp.life);
     if (env.alpha <= 0.002) return;
 
     var colT = sp.colStart + lifeT * sp.colDrift; // flows along palette over lifetime
     var color = paletteColor(sp.moodId, colT, clamp(sp.lum, 0.75, 1.25));
-    var alpha = 0.55 * env.alpha;
+    // Audio-reactive nudge (Task A9): +15% max, clamped to a 0.65 ceiling
+    // (base max 0.55 * 1.15 = 0.6325, so 0.65 leaves a small safety margin).
+    var alpha = Math.min(0.65, 0.55 * env.alpha * (1 + 0.15 * E));
     var width = sp.width * env.shrink;
     var fold = sp.foldCount || FOLD;
 

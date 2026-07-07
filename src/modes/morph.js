@@ -624,6 +624,9 @@
   }
 
   function drawShape(ctx, s) {
+    // Audio-reactive visual energy (Task A9): one bounded multiplier applied
+    // at draw time only, so silence (E=0) is exactly neutral.
+    var E = (window.CALM_VIS && window.CALM_VIS.energy) || 0;
     var env = shapeEnvelope(s);
     if (env.alpha <= 0.002 || env.scale <= 0.002) return;
 
@@ -655,7 +658,10 @@
 
     // dual stroke: wide low-alpha glow + narrow bright core (no shadowBlur),
     // drawn as per-segment strokes so color can flow along the ring.
-    drawRingSegments(ctx, pts, cols, env.alpha, 10, 0.16, s.paletteRgb);
+    // Audio-reactive nudge (Task A9): outer glow only, +20% max, clamped to
+    // a 0.2 ceiling (base max 0.16 * 1.2 = 0.192, so 0.2 leaves a small margin).
+    var glowAlphaMul = Math.min(0.2, env.alpha * 0.16 * (1 + 0.2 * E)) / 0.16;
+    drawRingSegments(ctx, pts, cols, glowAlphaMul, 10, 0.16, s.paletteRgb);
     drawRingSegments(ctx, pts, cols, env.alpha, 2.4, 0.85, s.paletteRgb);
   }
 

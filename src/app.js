@@ -683,6 +683,7 @@ function enterProfile(profile) {
   // Must run before any sound can start: clears the previous profile's rate
   // so a residual oscillator can't leak into this profile's first sound.
   applyEntrainment(getProfileDevControl(profile.id).entrainmentRate);
+  applyVisualReactivity(profile.id);
   startSfxScheduler(profile.id);
   startGentlePromptTimer();
 }
@@ -873,6 +874,7 @@ function tickCanvas(now) {
 
   var dt = Math.min((now - canvas.lastTime) / 1000, 0.05); // cap at 50ms
   canvas.lastTime = now;
+  updateVisEnergy(dt);
 
   var ctx = canvas.ctx;
   var w = canvas.width;
@@ -2751,6 +2753,44 @@ function applyEntrainment(rateKey) {
   entrainment.rate = normalized;
 }
 
+// --- Visual reactivity feed (CALM_VIS) ---
+// One AnalyserNode on masterGain -> smoothed 0..1 energy consumed by
+// animation modes as bounded multipliers. Silence => exactly 0.
+// Per-profile dev kill-switch: visualReactivity (default on).
+
+window.CALM_VIS = { energy: 0 };
+var visFeed = { analyser: null, data: null, enabled: true };
+
+function ensureVisAnalyser() {
+  if (visFeed.analyser || !audio.ctx || !audio.masterGain) return;
+  visFeed.analyser = audio.ctx.createAnalyser();
+  visFeed.analyser.fftSize = 256;
+  visFeed.data = new Uint8Array(visFeed.analyser.fftSize);
+  audio.masterGain.connect(visFeed.analyser); // tap only; no output routing
+}
+
+function applyVisualReactivity(profileId) {
+  var control = getProfileDevControl(profileId);
+  visFeed.enabled = control.visualReactivity !== false;
+  if (!visFeed.enabled) window.CALM_VIS.energy = 0;
+}
+
+function updateVisEnergy(dt) {
+  if (!visFeed.enabled) { window.CALM_VIS.energy = 0; return; }
+  if (!visFeed.analyser) { ensureVisAnalyser(); if (!visFeed.analyser) { window.CALM_VIS.energy = 0; return; } }
+  visFeed.analyser.getByteTimeDomainData(visFeed.data);
+  var sum = 0;
+  for (var i = 0; i < visFeed.data.length; i++) {
+    var v = (visFeed.data[i] - 128) / 128;
+    sum += v * v;
+  }
+  var rms = Math.sqrt(sum / visFeed.data.length);
+  var target = Math.min(1, rms * 6); // normalize: typical bed RMS ~0.03-0.17
+  var tau = (target > window.CALM_VIS.energy) ? 0.5 : 2.0; // attack/release
+  window.CALM_VIS.energy += (target - window.CALM_VIS.energy) * (1 - Math.exp(-dt / tau));
+  if (window.CALM_VIS.energy < 0.001) window.CALM_VIS.energy = 0;
+}
+
 // --- SFX accent layer (dev-gated experiment) ---
 // Sparse, soft, never surprising. Default OFF for every profile;
 // enabled per profile via ?dev=true controls only.
@@ -3708,6 +3748,9 @@ function renderDevControls() {
       '</label>' +
       '<label>SFX accents (experiment)' +
         '<input data-dev-control="sfxEnabled" type="checkbox"' + (control.sfxEnabled ? ' checked' : '') + '>' +
+      '</label>' +
+      '<label>Visual reactivity' +
+        '<input data-dev-control="visualReactivity" type="checkbox"' + (control.visualReactivity === false ? '' : ' checked') + '>' +
       '</label>';
     $devControls.appendChild(card);
   });
@@ -3778,6 +3821,7 @@ function saveControlsFromUI() {
     var experimentLabel = card.querySelector('[data-dev-control="experimentLabel"]').value.trim();
     var entrainmentRate = card.querySelector('[data-dev-control="entrainmentRate"]').value;
     var sfxEnabled = card.querySelector('[data-dev-control="sfxEnabled"]').checked;
+    var visualReactivity = card.querySelector('[data-dev-control="visualReactivity"]').checked;
     var profileControl = {};
     var delaySeconds = Number(delayInput);
 
@@ -3789,6 +3833,9 @@ function saveControlsFromUI() {
     if (experimentLabel) profileControl.experimentLabel = experimentLabel;
     if (ENTRAINMENT_RATES[entrainmentRate]) profileControl.entrainmentRate = entrainmentRate;
     if (sfxEnabled) profileControl.sfxEnabled = true;
+    // Inverted vs sfxEnabled: default ON, so only store the key when the kid
+    // card is unchecked (absent = on), keeping the blob minimal.
+    if (!visualReactivity) profileControl.visualReactivity = false;
     controls[profileId] = profileControl;
   });
   saveDevControls(controls);

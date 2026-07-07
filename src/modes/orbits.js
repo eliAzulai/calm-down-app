@@ -387,6 +387,9 @@
     },
 
     tick: function (state, ctx, dt, w, h) {
+      // Audio-reactive visual energy (Task A9): one bounded multiplier applied
+      // at draw time only, so silence (E=0) is exactly neutral.
+      var E = (window.CALM_VIS && window.CALM_VIS.energy) || 0;
       state.t += dt;
       state.w = w; state.h = h;
 
@@ -615,7 +618,8 @@
 
         // layer 1: big low-alpha disc (soft glow) — shrinks slightly with fade
         var bw = spr.big.width * sizeScale, bh = spr.big.height * sizeScale;
-        ctx.globalAlpha = alpha * 0.55;
+        // Audio-reactive nudge (Task A9): +20% max, clamped to 0.8 ceiling.
+        ctx.globalAlpha = Math.min(0.8, alpha * 0.55 * (1 + 0.2 * E));
         ctx.drawImage(spr.big, pt.x - bw / 2, pt.y - bh / 2, bw, bh);
 
         // layer 2: small bright disc — shrinks slightly with fade

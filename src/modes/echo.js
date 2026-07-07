@@ -544,6 +544,11 @@
   };
 
   function drawLiveObject(ctx, o, state) {
+    // Audio-reactive visual energy (Task A9): LIVE object glow ring ONLY --
+    // the stamp archive (stampObject/state.stampCtx) is never touched by
+    // this or any other Task A9 change, so silence (E=0) is exactly neutral
+    // and stamps stay sacred regardless of E.
+    var E = (window.CALM_VIS && window.CALM_VIS.energy) || 0;
     // size control (kid slider): the live object always uses the plain
     // continuous multiplier (never per-frame randomized, even when surprise
     // sizes is on) so it never jitters/jumps while being watched or dragged
@@ -560,7 +565,9 @@
     ctx.closePath();
     ctx.lineWidth = 10;
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = rgbStr(rgb, glow * 0.35);
+    // Audio-reactive nudge (Task A9): +25% max, clamped to a 0.27 ceiling
+    // (base max 0.6*0.35=0.21 * 1.25 = 0.2625, so 0.27 leaves a small margin).
+    ctx.strokeStyle = rgbStr(rgb, Math.min(0.27, glow * 0.35 * (1 + 0.25 * E)));
     ctx.stroke();
     ctx.restore();
 

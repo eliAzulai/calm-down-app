@@ -822,6 +822,9 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
   }
 
   function drawBloom(state, ctx, bloom) {
+    // Audio-reactive visual energy (Task A9): one bounded multiplier applied
+    // at draw time only, so silence (E=0) is exactly neutral.
+    var E = (window.CALM_VIS && window.CALM_VIS.energy) || 0;
     var breathe = 1 + 0.03 * Math.sin(bloom.age * bloom.breatheFreq * 2 * Math.PI + bloom.breathePhase);
     breathe *= bloom.holdScale;
     var baseAlpha = bloom.faint ? 0.55 : 1.0;
@@ -860,7 +863,11 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
       // the traveling spiral wave (phyllotaxis blooms only, hypnotic payoff
       // of the ordered pattern becoming visible).
       if (isPhyllo && !bloom.dissolving) {
-        var lift = parastichyLift(bloom, seed, growthFrac);
+        // Audio-reactive nudge (Task A9): +25% max, clamped to
+        // PARASTICHY_MAX_LIFT * 1.25 so a boosted shimmer can never exceed
+        // the "<=15% per directive" ceiling by more than the spec's own
+        // +25%-per-site allowance.
+        var lift = Math.min(PARASTICHY_MAX_LIFT * 1.25, parastichyLift(bloom, seed, growthFrac) * (1 + 0.25 * E));
         if (lift > 0.001) col = applyLuminanceWobble(col, lift / 0.10);
       }
       var rgbStr = 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')';

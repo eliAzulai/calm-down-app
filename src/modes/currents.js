@@ -300,6 +300,10 @@
   }
 
   function tick(state, ctx, dt, w, h) {
+    // Audio-reactive visual energy (Task A9): one bounded multiplier applied
+    // at draw time only, so silence (E=0) is exactly neutral. Read once per
+    // tick, not per-particle -- energy is constant across a single frame.
+    var E = (window.CALM_VIS && window.CALM_VIS.energy) || 0;
     if (w !== state.w || h !== state.h) {
       state.w = w; state.h = h;
       buildBgCache(state);
@@ -436,6 +440,10 @@
       var ripple = Math.sin(p.wavePhase + state.t * 1.7) * 0.12 * tailT;
       var fadeOut = clamp(tailT + ripple, 0, 1);
       var alpha = STRATA[p.stratum].alpha * fadeIn * fadeOut;
+      // Audio-reactive nudge (Task A9): +20% max, clamped to the mode's own
+      // safe ceiling (0.85) so a boosted alpha can never exceed what the
+      // brightest stratum already draws at full fade-in.
+      alpha = Math.min(0.85, alpha * (1 + 0.2 * E));
       // gentle shrink as it fades (never grows back), floor so it doesn't vanish to a hard point
       var shrink = 0.55 + 0.45 * fadeOut;
       var drawSize = p.baseSize * shrink;
