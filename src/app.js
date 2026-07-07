@@ -3732,8 +3732,9 @@ function renderDevProfiles() {
 // for the mood/character selects of whichever registry mode is currently
 // picked in the modeDefaultsMode dropdown -- reused both at initial card
 // render and on that dropdown's change handler (see renderDevControls below).
-// echo/etch have no controls.moods/controls.character at all (see registry
-// contract in modes/*.js), so both selects degrade to just the placeholder.
+// A mode may expose no controls object (etch) or only some control kinds;
+// the V.controls / .moods / .character guards below degrade any missing kind
+// to just the "Mode default" placeholder.
 function modeDefaultControlOptionsHTML(mode, entry) {
   var V = window.CALM_MODES ? window.CALM_MODES.get(mode) : null;
   var moodOptions = '<option value="">Mode default</option>';
@@ -3788,9 +3789,10 @@ function renderDevControls() {
 
     // Task A11: mode-defaults editor. Dev-grade simple -- one mode edited at
     // a time via a picker, not a full per-mode grid (see task brief). Only
-    // registry modes have applyControl/moods/character, so the mode picker
-    // is scoped to window.CALM_MODES.list (echo/currents/orbits/mandala/
-    // bloom/morph/etch), never the 5 legacy canvas modes.
+    // registry modes carry an applyControl + controls contract, so the mode
+    // picker is scoped to window.CALM_MODES.list (echo/currents/orbits/mandala/
+    // bloom/morph/etch), never the 5 legacy canvas modes. (Not every registry
+    // mode exposes mood/character -- etch has none -- hence the guards above.)
     var modeDefaults = control.modeDefaults || {};
     var mdModeList = (window.CALM_MODES && window.CALM_MODES.list) || [];
     var mdSavedModes = Object.keys(modeDefaults);
