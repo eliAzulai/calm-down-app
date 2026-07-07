@@ -404,20 +404,26 @@ await check('All modes drain to clean canvas (fades)', async () => {
       return n;
     });
     // Per-mode budgets (Task A8 residue-vs-ambient-life reconciliation -- see
-    // commit body for the instrumented probe numbers behind each). trails/
-    // particles/ripples/geometric have zero by-design ambient decor, so they
-    // keep the strict default budget-8 -- this is what actually proves the
-    // veil fix (these four go from fully opaque/7865 pre-fix to single
-    // digits post-fix). bloom/morph/orbits/mandala/currents each have
+    // commit body for the instrumented probe numbers behind each).
+    // To recalibrate a budget (e.g. after changing a mode's design constants
+    // like morph LIFE or orbits PERSIST_AFTER_RELEASE): run this check
+    // standalone ~5 times for the affected mode, take the max observed lit
+    // count, add ~50% margin; keep every budget far below the ~7865
+    // opaque-plateau regression signature this gate exists to catch.
+    // trails/particles/ripples/geometric have zero by-design ambient decor,
+    // so they keep the strict default budget-8 -- this is what actually
+    // proves the veil fix (these four go from fully opaque/7865 pre-fix to
+    // single digits post-fix). bloom/morph/orbits/mandala/currents each have
     // documented, intentional idle/persistence behavior (idle sparks, ambient
     // motes, 14-20s touch-shape lifespans) that legitimately still lights
     // pixels within this check's 6.5s window -- budgets set generously above
     // multi-sample probe ceilings (18 morph samples: 71-151; 5 currents
-    // samples: 12-31; 5 orbits samples + check runs: 109-165) since idle
+    // samples: 12-31; orbits: 109-178 across the A8 probe samples + check
+    // runs + 5 reviewer standalone runs of this check's logic) since idle
     // spawn/duet-pairing timing is probabilistic (Math.random()-gated) and a
     // single sample undersells the tail. Still nowhere near the pre-fix
     // opaque-canvas value (7865), so a real regression still trips these.
-    const AMBIENT_BUDGET = { bloom: 60, morph: 300, orbits: 200, mandala: 40, currents: 45 };
+    const AMBIENT_BUDGET = { bloom: 60, morph: 300, orbits: 280, mandala: 40, currents: 45 };
     const budget = AMBIENT_BUDGET[m] || 8;
     if (lit > budget) dirty.push(`${m}=${lit}(>${budget})`);
     await page.click('#btn-clear');
