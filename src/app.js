@@ -316,6 +316,10 @@ function computeSignalSummary(profileId) {
     return musicCounts[b] - musicCounts[a];
   })[0] || null;
 
+  var topControl = Object.keys(controlCounts).sort(function(a, b) {
+    return controlCounts[b] - controlCounts[a];
+  })[0] || null;
+
   return {
     events: events,
     sessions: sessions,
@@ -327,11 +331,12 @@ function computeSignalSummary(profileId) {
     soundCounts: soundCounts,
     topMusic: topMusic,
     musicCounts: musicCounts,
+    topControl: topControl,
+    controlCounts: controlCounts,
     promptShown: promptShown,
     promptOpened: promptOpened,
     promptIgnored: promptIgnored,
     exerciseCompleted: exerciseCompleted,
-    controlCounts: controlCounts,
   };
 }
 
@@ -3686,12 +3691,9 @@ function renderDevProfiles() {
     var mt = getMusicTrack(summary.topMusic);
     var musicName = summary.topMusic === 'off' ? 'Stopped' : (mt ? mt.name : summary.topMusic);
     var musicUse = summary.topMusic ? musicName + ' (' + summary.musicCounts[summary.topMusic] + ')' : 'No music use yet';
-    var topControlKey = Object.keys(summary.controlCounts).sort(function(a, b) {
-      return summary.controlCounts[b] - summary.controlCounts[a];
-    })[0] || null;
     var topControl = '—';
-    if (topControlKey) {
-      var controlParts = topControlKey.split(':');
+    if (summary.topControl) {
+      var controlParts = summary.topControl.split(':');
       var controlModeLabel = MODE_LABELS[controlParts[0]] || controlParts[0];
       topControl = controlModeLabel + ' · ' + controlParts[1];
     }
