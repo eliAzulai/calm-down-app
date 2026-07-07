@@ -658,9 +658,11 @@
 
     // dual stroke: wide low-alpha glow + narrow bright core (no shadowBlur),
     // drawn as per-segment strokes so color can flow along the ring.
-    // Audio-reactive nudge (Task A9): outer glow only, +20% max, clamped to
-    // a 0.2 ceiling (base max 0.16 * 1.2 = 0.192, so 0.2 leaves a small margin).
-    var glowAlphaMul = Math.min(0.2, env.alpha * 0.16 * (1 + 0.2 * E)) / 0.16;
+    // Audio-reactive nudge (Task A9): outer glow only, +20% max. Clamp in
+    // multiplier space — drawRingSegments re-multiplies by the 0.16 base on the
+    // next line, so 1.25 * 0.16 = 0.2 is the effective-alpha ceiling. (0.16 lives
+    // only on the drawRingSegments call; do not reintroduce it here.)
+    var glowAlphaMul = Math.min(1.25, env.alpha * (1 + 0.2 * E));
     drawRingSegments(ctx, pts, cols, glowAlphaMul, 10, 0.16, s.paletteRgb);
     drawRingSegments(ctx, pts, cols, env.alpha, 2.4, 0.85, s.paletteRgb);
   }

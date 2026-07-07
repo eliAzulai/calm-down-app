@@ -2758,6 +2758,10 @@ function applyEntrainment(rateKey) {
 // animation modes as bounded multipliers. Silence => exactly 0.
 // Per-profile dev kill-switch: visualReactivity (default on).
 
+// Intentional duplicate of registry.js's window.CALM_VIS init: updateVisEnergy()
+// runs at the top of tickCanvas, OUTSIDE the registry try/catch, so this must
+// exist even if registry.js fails to load (offline cache-miss) — otherwise the
+// rAF loop TypeErrors every frame and the canvas freezes. Do not delete.
 window.CALM_VIS = { energy: 0 };
 var visFeed = { analyser: null, data: null, enabled: true };
 

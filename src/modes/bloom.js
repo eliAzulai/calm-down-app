@@ -863,10 +863,10 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
       // the traveling spiral wave (phyllotaxis blooms only, hypnotic payoff
       // of the ordered pattern becoming visible).
       if (isPhyllo && !bloom.dissolving) {
-        // Audio-reactive nudge (Task A9): +25% max, clamped to
-        // PARASTICHY_MAX_LIFT * 1.25 so a boosted shimmer can never exceed
-        // the "<=15% per directive" ceiling by more than the spec's own
-        // +25%-per-site allowance.
+        // Audio-reactive nudge (Task A9): +25% max, E-scaled. Base lift is
+        // capped at PARASTICHY_MAX_LIFT (0.15 — its own "<=15% per directive"
+        // ceiling); the audio boost may lift a lit seed 25% above that, to
+        // 0.1875 max. (Two separate bounds: the 0.15 base cap and the A9 +25%.)
         var lift = Math.min(PARASTICHY_MAX_LIFT * 1.25, parastichyLift(bloom, seed, growthFrac) * (1 + 0.25 * E));
         if (lift > 0.001) col = applyLuminanceWobble(col, lift / 0.10);
       }

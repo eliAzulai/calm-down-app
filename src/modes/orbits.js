@@ -618,7 +618,9 @@
 
         // layer 1: big low-alpha disc (soft glow) — shrinks slightly with fade
         var bw = spr.big.width * sizeScale, bh = spr.big.height * sizeScale;
-        // Audio-reactive nudge (Task A9): +20% max, clamped to 0.8 ceiling.
+        // Audio-reactive nudge (Task A9): +20% max, clamped to the plan-given
+        // 0.8 ceiling (looser than the 0.55*1.2=0.66 the base alone reaches, so
+        // the clamp only bites on the brightest discs — deliberate headroom).
         ctx.globalAlpha = Math.min(0.8, alpha * 0.55 * (1 + 0.2 * E));
         ctx.drawImage(spr.big, pt.x - bw / 2, pt.y - bh / 2, bw, bh);
 
