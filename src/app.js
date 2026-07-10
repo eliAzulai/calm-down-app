@@ -1439,6 +1439,55 @@ function clearCanvasFull() {
   }
 }
 
+// --- Save Canvas Art ---
+
+var $btnSave = document.getElementById('btn-save');
+
+$btnSave.addEventListener('click', saveCanvasArt);
+
+function saveCanvasArt() {
+  if (!canvas.ctx) return;
+  // Composite onto an opaque background so the PNG isn't transparent
+  var out = document.createElement('canvas');
+  out.width = $mainCanvas.width;
+  out.height = $mainCanvas.height;
+  var octx = out.getContext('2d');
+  octx.fillStyle = '#0d1b2a';
+  octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage($mainCanvas, 0, 0);
+
+  out.toBlob(function(blob) {
+    if (!blob) return;
+    var filename = 'calm-station-art-' + Date.now() + '.png';
+    var file = new File([blob], filename, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      // iPad/iOS: share sheet (save to Photos, AirDrop, etc.)
+      navigator.share({ files: [file] }).then(function() {
+        showSaveConfirmation();
+      }).catch(function() { /* user cancelled — fine */ });
+    } else {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+      showSaveConfirmation();
+    }
+  }, 'image/png');
+}
+
+function showSaveConfirmation() {
+  $modeIndicator.textContent = 'Art saved';
+  $modeIndicator.classList.add('visible');
+  clearTimeout(showModeIndicator._timer);
+  showModeIndicator._timer = setTimeout(function() {
+    $modeIndicator.classList.remove('visible');
+  }, 1500);
+}
+
 // --- Gentle Prompt ---
 
 var $gentleOrb = document.getElementById('gentle-orb');

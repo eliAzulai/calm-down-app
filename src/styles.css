@@ -511,7 +511,7 @@ html, body {
   pointer-events: auto;
 }
 
-#btn-back, #btn-clear, #btn-sound, #btn-modes, #btn-style {
+#btn-back, #btn-clear, #btn-sound, #btn-modes, #btn-style, #btn-save {
   position: absolute;
   top: calc(var(--space-lg) + env(safe-area-inset-top, 0));
   width: 48px;
@@ -538,7 +538,13 @@ html, body {
   right: calc(var(--space-lg) + env(safe-area-inset-right, 0));
 }
 
-#btn-back:active, #btn-clear:active, #btn-sound:active, #btn-modes:active, #btn-style:active {
+/* btn-save at 224px slot: main placed it at 112px, colliding with #btn-modes;
+   moved to the next free right-edge slot after modes(112)/style(168). */
+#btn-save {
+  right: calc(var(--space-lg) + 224px + env(safe-area-inset-right, 0));
+}
+
+#btn-back:active, #btn-clear:active, #btn-sound:active, #btn-modes:active, #btn-style:active, #btn-save:active {
   transform: scale(0.93);
   background: rgba(255, 255, 255, 0.06);
 }

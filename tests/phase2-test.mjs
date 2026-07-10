@@ -21,7 +21,10 @@ function log(check, pass, detail) {
   const page = await context.newPage();
 
   const consoleErrors = [];
-  page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  page.on('console', msg => {
+    // cert errors come from the sandboxed-CI TLS proxy, not the app
+    if (msg.type() === 'error' && !msg.text().includes('ERR_CERT_AUTHORITY_INVALID')) consoleErrors.push(msg.text());
+  });
   page.on('pageerror', err => consoleErrors.push(err.message));
 
   await page.goto(BASE, { waitUntil: 'networkidle' });

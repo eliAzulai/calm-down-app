@@ -37,13 +37,13 @@ await check('Registry exposes 7 modes, echo first', async () => {
   return list.join(',');
 });
 
-await check('SW precaches mode files at v3', async () => {
+await check('SW precaches mode files at v4', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  if (!body.includes('calm-station-v3')) throw new Error('cache not v3');
-  return 'v3 + 8 files';
+  if (!body.includes('calm-station-v4')) throw new Error('cache not v4');
+  return 'v4 + 8 files';
 });
 
 await check('New modes render pixels via double-tap cycling', async () => {
