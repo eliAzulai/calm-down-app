@@ -511,7 +511,7 @@ html, body {
   pointer-events: auto;
 }
 
-#btn-back, #btn-clear, #btn-sound, #btn-save {
+#btn-back, #btn-clear, #btn-sound, #btn-modes, #btn-style, #btn-save {
   position: absolute;
   top: calc(var(--space-lg) + env(safe-area-inset-top, 0));
   width: 48px;
@@ -538,11 +538,13 @@ html, body {
   right: calc(var(--space-lg) + env(safe-area-inset-right, 0));
 }
 
+/* btn-save at 224px slot: main placed it at 112px, colliding with #btn-modes;
+   moved to the next free right-edge slot after modes(112)/style(168). */
 #btn-save {
-  right: calc(var(--space-lg) + 112px + env(safe-area-inset-right, 0));
+  right: calc(var(--space-lg) + 224px + env(safe-area-inset-right, 0));
 }
 
-#btn-back:active, #btn-clear:active, #btn-sound:active, #btn-save:active {
+#btn-back:active, #btn-clear:active, #btn-sound:active, #btn-modes:active, #btn-style:active, #btn-save:active {
   transform: scale(0.93);
   background: rgba(255, 255, 255, 0.06);
 }
@@ -553,6 +555,32 @@ html, body {
 }
 
 #btn-sound.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* --- Mode Button & Tray ---
+   Corner cluster grows leftward from the right edge in 56px slots
+   (48px button + 8px gap): btn-clear (0), btn-sound (56px), btn-modes
+   (112px), btn-style (168px) — fourth slot, sits beside btn-modes with no
+   overlap. */
+#btn-modes {
+  right: calc(var(--space-lg) + 112px + env(safe-area-inset-right, 0));
+}
+
+#btn-modes.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* --- Style Button & Tray --- */
+#btn-style {
+  right: calc(var(--space-lg) + 168px + env(safe-area-inset-right, 0));
+}
+
+#btn-style.active {
   background: var(--accent-dim);
   border-color: var(--accent);
   color: var(--accent);
@@ -582,11 +610,88 @@ html, body {
   visibility: visible;
 }
 
+/* #mode-tray inherits .sound-panel's exact corner anchor (button-relative
+   top: space-lg + 56px, flush right) — no positional overrides, so it can
+   never drift off short viewports. The two panels share that anchor zone
+   and are mutually exclusive in JS (opening one closes the other), so they
+   never contend for it. max-height keeps the tray inside the viewport on
+   the smallest supported screen (375x667): 96px = 80px anchor top
+   (space-lg 24px + 56px button zone) + 16px bottom margin; when the chip
+   grid doesn't fit, it scrolls WITHIN the tray. */
+#mode-tray {
+  min-width: 264px;
+  max-height: calc(100vh - 96px - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+/* #style-tray inherits .sound-panel's exact corner anchor — same reasoning
+   as #mode-tray above: no positional overrides, so it can never drift off
+   short viewports, and the mutual-exclusion trio in JS keeps only one panel
+   in this anchor zone at a time. */
+#style-tray {
+  max-height: calc(100vh - 96px - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-width: 264px;
+}
+
+/* Style tray controls — ported from reference/vis-variants/demo-gallery.html
+   (.ctlrow/.ctl-label/.swatch/.dot/.swname/.chip), scoped under #style-tray. */
+#style-tray .ctlrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+#style-tray .ctlrow:last-child { margin-bottom: 0; }
+#style-tray .ctl-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .5; margin-right: 4px; min-width: 44px; }
+#style-tray .swatch { display: flex; align-items: center; gap: 3px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 5px 10px; cursor: pointer; color: inherit; font-size: 12px; min-height: 48px; }
+#style-tray .swatch.on { border-color: var(--accent); background: var(--accent-dim); }
+#style-tray .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+#style-tray .swname { margin-left: 4px; font-size: 12px; }
+#style-tray .chip { background: rgba(255, 255, 255, 0.06); color: inherit; border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; min-height: 48px; }
+#style-tray .chip.on { background: var(--accent); color: var(--bg-deep); border-color: var(--accent); font-weight: 600; }
+#style-empty { font-size: 12.5px; opacity: .6; }
+/* Size control (Task A5): kid-facing slider + surprise-sizes toggle. */
+#style-size input[type=range] { width: 130px; accent-color: var(--accent); }
+
+.mode-option {
+  min-height: 48px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mode-option.selected {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .sound-options {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
   margin-bottom: var(--space-md);
+}
+
+.sound-section-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin: 2px 4px 6px;
+}
+.sound-options + .sound-section-label {
+  margin-top: 10px;
+}
+.sound-option.unavailable {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 .sound-option {
@@ -603,7 +708,7 @@ html, body {
   font-weight: 400;
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
-  min-height: 40px;
+  min-height: 48px;
   text-align: left;
 }
 
@@ -1496,6 +1601,179 @@ html, body {
   }
 }
 
+/* --- Developer Feedback Screen --- */
+
+#screen-dev {
+  background: #10131a;
+  color: #e7edf3;
+  overflow-y: auto;
+  padding: calc(24px + env(safe-area-inset-top)) 20px calc(32px + env(safe-area-inset-bottom));
+}
+
+.dev-shell {
+  width: min(960px, 100%);
+  margin: 0 auto;
+}
+
+.dev-header,
+.dev-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dev-header {
+  margin-bottom: 24px;
+}
+
+.dev-eyebrow {
+  margin: 0 0 4px;
+  color: #8fa7b8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dev-header h2,
+.dev-section h3 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.dev-header h2 {
+  font-size: 1.75rem;
+}
+
+#dev-back,
+#dev-export,
+#dev-save-controls,
+#dev-reset {
+  min-height: 48px;
+  border: 1px solid rgba(143, 167, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e7edf3;
+  padding: 0 14px;
+  font: inherit;
+}
+
+#dev-reset {
+  color: #ffb4a8;
+}
+
+.dev-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid rgba(143, 167, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dev-profiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.dev-profile-card,
+.dev-control-card {
+  border: 1px solid rgba(143, 167, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(9, 14, 20, 0.72);
+  padding: 14px;
+}
+
+.dev-profile-card h4,
+.dev-control-card h4 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.dev-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dev-stat {
+  min-height: 58px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 8px;
+}
+
+.dev-stat-value {
+  display: block;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.dev-stat-label {
+  display: block;
+  margin-top: 3px;
+  color: #8fa7b8;
+  font-size: 0.72rem;
+}
+
+.dev-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.dev-control-card label {
+  display: block;
+  margin-top: 10px;
+  color: #b9c8d3;
+  font-size: 0.78rem;
+}
+
+.dev-control-card select,
+.dev-control-card input {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 4px;
+  border: 1px solid rgba(143, 167, 184, 0.28);
+  border-radius: 8px;
+  background: #10131a;
+  color: #e7edf3;
+  padding: 0 10px;
+  font: inherit;
+}
+
+.dev-status {
+  min-height: 20px;
+  margin: 12px 0 0;
+  color: #8fa7b8;
+}
+
+.dev-events {
+  margin-top: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.dev-event-row {
+  display: grid;
+  grid-template-columns: 150px 140px 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #b9c8d3;
+  font-size: 0.78rem;
+}
+
+.dev-event-type {
+  color: #ffffff;
+  font-weight: 700;
+}
+
 /* --- Responsive --- */
 @media (max-width: 480px) {
   #screen-profiles {
@@ -1517,6 +1795,10 @@ html, body {
 
   .profile-card.setup {
     min-height: 300px;
+  }
+
+  .dev-event-row {
+    grid-template-columns: 1fr;
   }
 }
 

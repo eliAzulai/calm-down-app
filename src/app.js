@@ -105,6 +105,241 @@ function saveProfilePrefs(id, prefs) {
   }
 }
 
+var SIGNAL_LIMIT = 500;
+var SIGNAL_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+var DEV_CONTROLS_KEY = 'calm-station-dev-controls';
+
+function getDevControls() {
+  try {
+    var raw = localStorage.getItem(DEV_CONTROLS_KEY);
+    if (!raw) return {};
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveDevControls(controls) {
+  try {
+    localStorage.setItem(DEV_CONTROLS_KEY, JSON.stringify(controls || {}));
+  } catch (e) {
+    // silent
+  }
+}
+
+function getProfileDevControl(profileId) {
+  var controls = getDevControls();
+  var control = controls[profileId];
+  if (!control || typeof control !== 'object' || Array.isArray(control)) return {};
+  return control;
+}
+
+function getSignalKey(profileId) {
+  return 'calm-station-' + profileId + '-signals';
+}
+
+function readSignals(profileId) {
+  try {
+    var raw = localStorage.getItem(getSignalKey(profileId));
+    if (!raw) return [];
+    var parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(function(event) {
+      return event && typeof event === 'object' && !Array.isArray(event);
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+function writeSignals(profileId, events) {
+  try {
+    var cutoff = Date.now() - SIGNAL_MAX_AGE_MS;
+    var capped = events.filter(function(event) {
+      if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
+      return !event.ts || new Date(event.ts).getTime() >= cutoff;
+    }).slice(-SIGNAL_LIMIT);
+    localStorage.setItem(getSignalKey(profileId), JSON.stringify(capped));
+  } catch (e) {
+    // silent
+  }
+}
+
+function getProfileById(profileId) {
+  return state.profiles.find(function(profile) {
+    return profile && profile.id === profileId;
+  }) || null;
+}
+
+function getSignalContext(profileId) {
+  var profile = getProfileById(profileId);
+  var mode = null;
+  var currentAudio = typeof audio !== 'undefined' && audio ? audio : null;
+
+  try {
+    mode = MODES[state.canvasMode] || null;
+  } catch (e) {
+    mode = null;
+  }
+
+  return {
+    theme: profile ? profile.theme : null,
+    mode: mode,
+    soundId: currentAudio ? currentAudio.currentId || null : null,
+    soundPlaying: currentAudio ? currentAudio.playing === true : false,
+    musicId: currentAudio ? currentAudio.musicId || null : null,
+    musicPlaying: currentAudio ? currentAudio.musicPlaying === true : false,
+  };
+}
+
+function recordSignal(type, payload) {
+  if (!state.activeProfileId) return;
+  recordSignalForProfile(state.activeProfileId, type, payload);
+}
+
+function recordSignalForProfile(profileId, type, payload) {
+  recordSignalForProfileWithContext(profileId, type, payload, getSignalContext(profileId));
+}
+
+function recordSignalForProfileWithContext(profileId, type, payload, context) {
+  if (!profileId || !type) return;
+  var events = readSignals(profileId);
+  events.push({
+    id: generateId(),
+    ts: new Date().toISOString(),
+    type: type,
+    context: context,
+    payload: payload || {},
+  });
+  writeSignals(profileId, events);
+}
+
+function secondsBetween(start, end) {
+  if (!start || !end) return 0;
+  var startMs = new Date(start).getTime();
+  var endMs = new Date(end).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
+  return Math.max(0, Math.round((endMs - startMs) / 1000));
+}
+
+function isValidDateValue(value) {
+  return !!value && !Number.isNaN(new Date(value).getTime());
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return '0s';
+  var minutes = Math.floor(seconds / 60);
+  var rest = seconds % 60;
+  if (minutes === 0) return rest + 's';
+  return minutes + 'm ' + rest + 's';
+}
+
+function computeSignalSummary(profileId) {
+  var events = readSignals(profileId);
+  var modeTime = {};
+  var soundCounts = {};
+  var musicCounts = {};
+  var promptShown = 0;
+  var promptOpened = 0;
+  var promptIgnored = 0;
+  var exerciseCompleted = 0;
+  var controlCounts = {};
+  var sessions = 0;
+  var completedSessions = 0;
+  var totalSessionSeconds = 0;
+  var activeSessionStart = null;
+  var activeMode = null;
+  var activeModeStart = null;
+
+  events.forEach(function(event) {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) return;
+    var payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+
+    if (event.type === 'session_start') {
+      sessions += 1;
+      activeSessionStart = event.ts;
+    }
+    if (event.type === 'session_end' && activeSessionStart) {
+      var sessionSeconds = secondsBetween(activeSessionStart, event.ts);
+      if (isValidDateValue(activeSessionStart) && isValidDateValue(event.ts)) {
+        totalSessionSeconds += sessionSeconds;
+        completedSessions += 1;
+      }
+      activeSessionStart = null;
+    }
+    if (event.type === 'mode_start') {
+      activeMode = payload.mode;
+      activeModeStart = event.ts;
+    }
+    if (event.type === 'mode_end' && activeModeStart) {
+      var mode = payload.mode || activeMode || 'unknown';
+      modeTime[mode] = (modeTime[mode] || 0) + secondsBetween(activeModeStart, event.ts);
+      activeMode = null;
+      activeModeStart = null;
+    }
+    if (event.type === 'sound_select') {
+      var soundId = payload.soundId || 'unknown';
+      if (payload.layer === 'music') {
+        musicCounts[soundId] = (musicCounts[soundId] || 0) + 1;
+      } else {
+        soundCounts[soundId] = (soundCounts[soundId] || 0) + 1;
+      }
+    }
+    if (event.type === 'sound_stop') {
+      if (payload.layer === 'music') {
+        musicCounts.off = (musicCounts.off || 0) + 1;
+      } else {
+        soundCounts.off = (soundCounts.off || 0) + 1;
+      }
+    }
+    if (event.type === 'prompt_shown') promptShown += 1;
+    if (event.type === 'prompt_opened') promptOpened += 1;
+    if (event.type === 'prompt_ignored') promptIgnored += 1;
+    if (event.type === 'exercise_completed') exerciseCompleted += 1;
+    if (event.type === 'mode_control') {
+      var key = (payload.mode || '?') + ':' + (payload.control || '?');
+      controlCounts[key] = (controlCounts[key] || 0) + 1;
+    }
+  });
+
+  var topMode = Object.keys(modeTime).sort(function(a, b) {
+    return modeTime[b] - modeTime[a];
+  })[0] || null;
+
+  var topSound = Object.keys(soundCounts).sort(function(a, b) {
+    return soundCounts[b] - soundCounts[a];
+  })[0] || null;
+
+  var topMusic = Object.keys(musicCounts).sort(function(a, b) {
+    return musicCounts[b] - musicCounts[a];
+  })[0] || null;
+
+  var topControl = Object.keys(controlCounts).sort(function(a, b) {
+    return controlCounts[b] - controlCounts[a];
+  })[0] || null;
+
+  return {
+    events: events,
+    sessions: sessions,
+    averageSessionSeconds: completedSessions ? Math.round(totalSessionSeconds / completedSessions) : 0,
+    modeTime: modeTime,
+    topMode: topMode,
+    topModeSeconds: topMode ? modeTime[topMode] : 0,
+    topSound: topSound,
+    soundCounts: soundCounts,
+    topMusic: topMusic,
+    musicCounts: musicCounts,
+    topControl: topControl,
+    controlCounts: controlCounts,
+    promptShown: promptShown,
+    promptOpened: promptOpened,
+    promptIgnored: promptIgnored,
+    exerciseCompleted: exerciseCompleted,
+  };
+}
+
 // --- Generate ID ---
 
 function generateId() {
@@ -118,6 +353,23 @@ const $screenProfiles = document.getElementById('screen-profiles');
 const $screenCanvas = document.getElementById('screen-canvas');
 const $btnBack = document.getElementById('btn-back');
 const $ambientCanvas = document.getElementById('ambient-canvas');
+
+function setScreenAccessibility(screenEl, isActive) {
+  if (!screenEl) return;
+  if (isActive) {
+    screenEl.removeAttribute('aria-hidden');
+    screenEl.removeAttribute('inert');
+  } else {
+    screenEl.setAttribute('aria-hidden', 'true');
+    screenEl.setAttribute('inert', '');
+  }
+}
+
+function setActiveScreenAccessibility(activeScreenEl) {
+  [$screenProfiles, $screenCanvas, $screenParent, $screenDev].forEach(function(screenEl) {
+    setScreenAccessibility(screenEl, screenEl === activeScreenEl);
+  });
+}
 
 // --- Render Profile Cards ---
 
@@ -391,21 +643,33 @@ function saveNewProfile() {
 
 // --- Canvas Visual Modes ---
 
-const MODES = ['trails', 'particles', 'ripples', 'geometric', 'drawing'];
+const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch',
+               'trails', 'particles', 'ripples', 'geometric', 'drawing'];
 const MODE_LABELS = {
-  trails: 'Finger Trails',
-  particles: 'Particles',
-  ripples: 'Ripples',
-  geometric: 'Geometric',
-  drawing: 'Freeform',
+  echo: 'Echo', currents: 'Currents', orbits: 'Orbits', mandala: 'Mandala',
+  bloom: 'Bloom', morph: 'Morph', etch: 'Etch',
+  trails: 'Finger Trails', particles: 'Particles', ripples: 'Ripples',
+  geometric: 'Geometric', drawing: 'Freeform',
 };
+// The five modes with a "trace" (fades vs stays) concept — echo/etch are
+// exempt because persistence IS their identity (nothing to toggle), and
+// legacy modes have no registry controls at all.
+const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph'];
 
 // --- Screen Navigation ---
 
 function enterProfile(profile) {
   state.screen = 'canvas';
   state.activeProfileId = profile.id;
-  state.canvasMode = 0;
+  var devControl = getProfileDevControl(profile.id);
+  var defaultModeIndex = MODES.indexOf(devControl.defaultMode);
+  // DECISION (Task A2): the shipping default experience stays 'trails' even
+  // though MODES[0] is now 'echo' (registry modes lead the ring so tray/tests
+  // treat them as first-class). Without a dev-set default, fall back to
+  // trails explicitly rather than index 0, preserving what kids see today;
+  // the new registry modes are reachable via double-tap cycling or the mode
+  // tray. Revisit once the observation cycle (Task A-later) has data.
+  state.canvasMode = defaultModeIndex >= 0 ? defaultModeIndex : MODES.indexOf('trails');
 
   // Apply theme to canvas screen
   $screenCanvas.classList.remove('theme-ocean', 'theme-sunset', 'theme-forest', 'theme-neon', 'theme-mono');
@@ -416,39 +680,49 @@ function enterProfile(profile) {
   canvas.accentRGB = hexToRGB(theme.accent);
   canvas.secondaryRGB = hexToRGB(theme.secondary);
   canvas.drawColor = canvas.accentRGB;
+  canvas.regState = null; canvas.regId = null;
 
   $screenProfiles.classList.remove('active');
   $screenCanvas.classList.add('active');
+  setActiveScreenAccessibility($screenCanvas);
   $ambientCanvas.classList.add('hidden');
 
   initCanvas();
   showModeIndicator();
+  startSignalSession();
   loadSoundPrefs();
+  // Must run before any sound can start: clears the previous profile's rate
+  // so a residual oscillator can't leak into this profile's first sound.
+  applyEntrainment(getProfileDevControl(profile.id).entrainmentRate);
+  applyVisualReactivity(profile.id);
+  startSfxScheduler(profile.id);
   startGentlePromptTimer();
 }
 
 function backToProfiles() {
   state.screen = 'profiles';
-  state.activeProfileId = null;
 
+  endSignalSession();
   stopCanvas();
   stopSoundOnExit();
+  closeModeTray(); // same exit hygiene stopSoundOnExit gives the sound panel
+  closeStyleTray(); // same exit hygiene, third panel (Task A4)
   stopGentlePromptTimer();
   closeBreatheOverlay();
   closeGroundOverlay();
   closeAllEnergyOverlays();
+  state.activeProfileId = null;
 
   $screenCanvas.classList.remove('active');
   $screenProfiles.classList.add('active');
+  setActiveScreenAccessibility($screenProfiles);
   $ambientCanvas.classList.remove('hidden');
 }
 
 function closeAllEnergyOverlays() {
   document.getElementById('energy-checkin').classList.remove('active');
   document.getElementById('energy-checkout').classList.remove('active');
-  exerciseFlow.exerciseType = null;
-  exerciseFlow.energyBefore = null;
-  exerciseFlow.energyAfter = null;
+  closeExerciseFlow();
 }
 
 $btnBack.addEventListener('click', backToProfiles);
@@ -488,6 +762,16 @@ var canvas = {
   scale: 1,
   pinchStartDist: 0,
   pinchStartScale: 1,
+  // Registry mode state (Task A2 dispatcher integration)
+  regState: null,
+  regId: null,
+};
+
+var signalSession = {
+  active: false,
+  mode: null,
+  touchCount: 0,
+  touchTimer: null,
 };
 
 function initCanvas() {
@@ -522,6 +806,86 @@ function resizeCanvas() {
   $mainCanvas.width = canvas.width * canvas.dpr;
   $mainCanvas.height = canvas.height * canvas.dpr;
   canvas.ctx.setTransform(canvas.dpr, 0, 0, canvas.dpr, 0, 0);
+  // Registry modes intentionally NOT invalidated on resize: each mode
+  // self-heals via the fresh w/h passed to tick() every frame (echo alone
+  // resets its stamp archive, by its own documented design). Convention
+  // locked by the phase10 rotation test — new modes must track w/h in tick.
+}
+
+// --- Registry Mode Dispatch (Task A2) ---
+//
+// canvas.width/canvas.height are already CSS pixels here — resizeCanvas()
+// (below) sets canvas.width = window.innerWidth / canvas.height =
+// window.innerHeight, then scales the *DOM element's* backing store
+// ($mainCanvas.width/height) by canvas.dpr and applies ctx.setTransform(dpr,
+// ...) so every ctx drawing call already operates in CSS-pixel space. Only
+// $mainCanvas.width/height (the element's own properties, never read outside
+// resizeCanvas) hold device pixels. So ensureRegState below passes
+// canvas.width/canvas.height straight through — no dpr conversion needed —
+// and tickCanvas's local w/h (assigned from canvas.width/height a few lines
+// down) are the same CSS-pixel values the legacy render* functions already
+// consume, so registry modes and legacy modes share one coordinate space.
+
+function isRegistryMode(mode) {
+  return !!(window.CALM_MODES && window.CALM_MODES.get(mode));
+}
+
+function ensureRegState(mode) {
+  if (canvas.regId === mode && canvas.regState) return canvas.regState;
+  var V = window.CALM_MODES.get(mode);
+  canvas.regState = V.init(canvas.width, canvas.height, {
+    accent: canvas.accentRGB, secondary: canvas.secondaryRGB, bg: '#0d1b2a',
+  });
+  canvas.regId = mode;
+  applySavedModeControls(mode);
+  return canvas.regState;
+}
+
+function getModeControls(profileId) {
+  var prefs = getProfilePrefs(profileId);
+  return (prefs && prefs.modeControls) || {};
+}
+
+function saveModeControl(mode, control, value) {
+  if (!state.activeProfileId) return;
+  var prefs = getProfilePrefs(state.activeProfileId) || {};
+  prefs.modeControls = prefs.modeControls || {};
+  prefs.modeControls[mode] = prefs.modeControls[mode] || {};
+  prefs.modeControls[mode][control] = value;
+  saveProfilePrefs(state.activeProfileId, prefs);
+}
+
+function applySavedModeControls(mode) {
+  if (!state.activeProfileId || !canvas.regState) return;
+  var V = window.CALM_MODES.get(mode);
+  if (!V || !V.applyControl) return;
+  var saved = getModeControls(state.activeProfileId)[mode] || {};
+  // Task A11: three-tier fallback -- kid's saved choice > dev default > mode's
+  // built-in default. Dev defaults live at getProfileDevControl(...).modeDefaults[mode]
+  // (set via the dev card, see saveControlsFromUI); a kid's own saved pick
+  // always wins when present, and when neither is set the field is simply
+  // never applied, leaving the registry mode's own init default in place.
+  var devDefaults = (getProfileDevControl(state.activeProfileId).modeDefaults || {})[mode] || {};
+  var effective = {
+    mood: saved.mood || devDefaults.mood,
+    character: saved.character || devDefaults.character,
+    size: saved.size || devDefaults.size,
+    sizeRandom: (saved.sizeRandom !== undefined) ? saved.sizeRandom : devDefaults.sizeRandom,
+    trace: saved.trace || devDefaults.trace,
+  };
+  if (effective.mood) { try { V.applyControl(canvas.regState, 'mood', effective.mood); } catch (e) {} }
+  if (effective.character) { try { V.applyControl(canvas.regState, 'character', effective.character); } catch (e) {} }
+  if (effective.size) { try { V.applyControl(canvas.regState, 'size', effective.size); } catch (e) {} }
+  if (effective.sizeRandom !== undefined) { try { V.applyControl(canvas.regState, 'sizeRandom', effective.sizeRandom); } catch (e) {} }
+  if (effective.trace) { try { V.applyControl(canvas.regState, 'trace', effective.trace); } catch (e) {} }
+}
+
+function registryModeError(mode, err) {
+  recordSignal('mode_error', { mode: mode, message: String(err).slice(0, 120) });
+  canvas.regState = null; canvas.regId = null;
+  var fallback = MODES.indexOf('trails');
+  if (fallback >= 0) state.canvasMode = fallback;
+  showModeIndicator();
 }
 
 // --- Canvas Render Loop ---
@@ -534,31 +898,52 @@ function tickCanvas(now) {
 
   var dt = Math.min((now - canvas.lastTime) / 1000, 0.05); // cap at 50ms
   canvas.lastTime = now;
+  updateVisEnergy(dt);
 
   var ctx = canvas.ctx;
   var w = canvas.width;
   var h = canvas.height;
   var mode = MODES[state.canvasMode];
 
-  // Semi-transparent clear for trail persistence
-  if (mode === 'trails') {
-    ctx.fillStyle = 'rgba(13, 27, 42, 0.03)';
-    ctx.fillRect(0, 0, w, h);
+  if (isRegistryMode(mode)) {
+    try {
+      var rs = ensureRegState(mode);
+      var V = window.CALM_MODES.get(mode);
+      V.tick(rs, ctx, dt, w, h);
+      if (V.idle) V.idle(rs, w, h, dt);
+    } catch (err) {
+      registryModeError(mode, err);
+    }
+  } else if (mode === 'trails') {
+    // Ghost-trail eradication (Task A8): painting a translucent BACKGROUND-COLOR
+    // veil composites toward-but-never-to the background, leaving a permanent
+    // faint smear (client-flagged "lighter grey trails"). destination-out
+    // erases existing pixel alpha instead of compositing an opaque color
+    // underneath, so trails genuinely drain to transparency (the #0d1b2a
+    // screen behind #main-canvas shows through cleanly). Matches the registry
+    // modes' validated idiom (see currents.js/orbits.js residue-fix notes).
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.06)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+    renderTrails(ctx, dt);
   } else if (mode === 'drawing') {
-    // Drawing mode: no fade — strokes persist fully
+    renderDrawing(ctx); // no veil by design -- freeform drawing persists until Clear
   } else if (mode === 'geometric') {
-    ctx.fillStyle = 'rgba(13, 27, 42, 0.04)';
-    ctx.fillRect(0, 0, w, h);
-  } else {
-    ctx.fillStyle = 'rgba(13, 27, 42, 0.15)';
-    ctx.fillRect(0, 0, w, h);
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.06)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+    renderGeometric(ctx, dt, w, h);
+  } else if (mode === 'particles') {
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+    renderParticles(ctx, dt, w, h);
+  } else if (mode === 'ripples') {
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+    renderRipples(ctx, dt, w, h);
   }
-
-  if (mode === 'trails') renderTrails(ctx, dt);
-  else if (mode === 'particles') renderParticles(ctx, dt, w, h);
-  else if (mode === 'ripples') renderRipples(ctx, dt, w, h);
-  else if (mode === 'geometric') renderGeometric(ctx, dt, w, h);
-  else if (mode === 'drawing') renderDrawing(ctx);
 
   canvas.animId = requestAnimationFrame(tickCanvas);
 }
@@ -845,17 +1230,22 @@ var lastTapX = 0;
 var lastTapY = 0;
 
 $mainCanvas.addEventListener('pointerdown', function(e) {
+  if (sfx.active && !audio.ctx) ensureAudioContext();
   e.preventDefault();
   $mainCanvas.setPointerCapture(e.pointerId);
   var x = e.clientX;
   var y = e.clientY;
 
   canvas.touches[e.pointerId] = { x: x, y: y, prevX: x, prevY: y };
+  queueTouchSignal();
 
   var mode = MODES[state.canvasMode];
-  if (mode === 'particles') spawnParticles(x, y, 8);
-  if (mode === 'ripples') addRipple(x, y);
-  if (mode === 'geometric') addShape(x, y);
+  if (isRegistryMode(mode)) {
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), x, y, 'down'); } catch (err) { registryModeError(mode, err); }
+  }
+  if (!isRegistryMode(mode) && mode === 'particles') spawnParticles(x, y, 8);
+  if (!isRegistryMode(mode) && mode === 'ripples') addRipple(x, y);
+  if (!isRegistryMode(mode) && mode === 'geometric') addShape(x, y);
 
   // Double-tap detection
   var now = Date.now();
@@ -892,10 +1282,13 @@ $mainCanvas.addEventListener('pointermove', function(e) {
   touch.y = e.clientY;
 
   var mode = MODES[state.canvasMode];
-  if (mode === 'trails') addTrailPoint(touch.x, touch.y, touch.prevX, touch.prevY);
-  if (mode === 'ripples' && Math.random() < 0.15) addRipple(touch.x, touch.y);
-  if (mode === 'geometric' && Math.random() < 0.2) addShape(touch.x, touch.y);
-  if (mode === 'drawing') addDrawPoint(touch.x, touch.y, touch.prevX, touch.prevY);
+  if (isRegistryMode(mode)) {
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'move'); } catch (err) { registryModeError(mode, err); }
+  }
+  if (!isRegistryMode(mode) && mode === 'trails') addTrailPoint(touch.x, touch.y, touch.prevX, touch.prevY);
+  if (!isRegistryMode(mode) && mode === 'ripples' && Math.random() < 0.15) addRipple(touch.x, touch.y);
+  if (!isRegistryMode(mode) && mode === 'geometric' && Math.random() < 0.2) addShape(touch.x, touch.y);
+  if (!isRegistryMode(mode) && mode === 'drawing') addDrawPoint(touch.x, touch.y, touch.prevX, touch.prevY);
 
   // Pinch zoom
   var touchKeys = Object.keys(canvas.touches);
@@ -910,6 +1303,11 @@ $mainCanvas.addEventListener('pointermove', function(e) {
 });
 
 $mainCanvas.addEventListener('pointerup', function(e) {
+  var touch = canvas.touches[e.pointerId];
+  var mode = MODES[state.canvasMode];
+  if (touch && isRegistryMode(mode)) {
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'up'); } catch (err) { registryModeError(mode, err); }
+  }
   delete canvas.touches[e.pointerId];
 });
 
@@ -919,18 +1317,42 @@ $mainCanvas.addEventListener('pointercancel', function(e) {
 
 // --- Mode Cycling ---
 
-function cycleMode() {
-  state.canvasMode = (state.canvasMode + 1) % MODES.length;
+// Shared by double-tap cycling AND the mode tray so both entry points wipe
+// state and record signals identically. `via` is 'doubletap' or 'tray' —
+// recorded on the additive mode_select signal only; recordModeChange's own
+// mode_end/mode_cycle/mode_start + signalSession.mode bookkeeping (the data
+// the observation cycle depends on) runs exactly the same either way.
+function switchToMode(index, via) {
+  var previousMode = MODES[state.canvasMode];
+  state.canvasMode = index;
+  var nextMode = MODES[state.canvasMode];
+  recordModeChange(previousMode, nextMode);
+  recordSignal('mode_select', { mode: nextMode, via: via });
   // Clear current effects for clean transition
   canvas.trails = [];
   canvas.particles = [];
   canvas.ripples = [];
   canvas.shapes = [];
   canvas.drawPaths = [];
+  // Invalidate registry mode state so the next tick lazily re-inits via
+  // ensureRegState — covers both directions (into AND out of a registry
+  // mode; clearCanvasFull() below only re-inits when landing ON a registry
+  // mode, so without this line leftover regState/regId from the mode we're
+  // leaving would linger, harmlessly but incorrectly, while a legacy mode
+  // is active).
+  canvas.regState = null; canvas.regId = null;
   // Set drawing color from current accent
   canvas.drawColor = canvas.accentRGB;
   clearCanvasFull();
   showModeIndicator();
+  // Style tray reflects the ACTIVE mode's controls — if it's open while the
+  // kid switches modes (tray or double-tap), keep it in sync rather than
+  // showing the stale previous mode's swatches/chips.
+  if (typeof styleTrayOpen !== 'undefined' && styleTrayOpen) renderStyleTray();
+}
+
+function cycleMode() {
+  switchToMode((state.canvasMode + 1) % MODES.length, 'doubletap');
 }
 
 function showModeIndicator() {
@@ -943,9 +1365,50 @@ function showModeIndicator() {
   }, 1500);
 }
 
+function startSignalSession() {
+  if (!state.activeProfileId || signalSession.active) return;
+  signalSession.active = true;
+  signalSession.mode = MODES[state.canvasMode];
+  signalSession.touchCount = 0;
+  recordSignal('session_start', {});
+  recordSignal('mode_start', { mode: signalSession.mode });
+}
+
+function endSignalSession() {
+  if (!state.activeProfileId || !signalSession.active) return;
+  flushTouchSignals();
+  recordSignal('mode_end', { mode: signalSession.mode });
+  recordSignal('session_end', {});
+  signalSession.active = false;
+  signalSession.mode = null;
+}
+
+function recordModeChange(previousMode, nextMode) {
+  recordSignal('mode_end', { mode: previousMode });
+  recordSignal('mode_cycle', { from: previousMode, to: nextMode });
+  recordSignal('mode_start', { mode: nextMode });
+  signalSession.mode = nextMode;
+}
+
+function queueTouchSignal() {
+  if (!signalSession.active) return;
+  signalSession.touchCount += 1;
+  clearTimeout(signalSession.touchTimer);
+  signalSession.touchTimer = setTimeout(flushTouchSignals, 2000);
+}
+
+function flushTouchSignals() {
+  clearTimeout(signalSession.touchTimer);
+  signalSession.touchTimer = null;
+  if (!signalSession.touchCount) return;
+  recordSignal('canvas_touch', { count: signalSession.touchCount });
+  signalSession.touchCount = 0;
+}
+
 // --- Clear Button ---
 
 $btnClear.addEventListener('click', function() {
+  recordSignal('clear_canvas', { mode: MODES[state.canvasMode] });
   canvas.trails = [];
   canvas.particles = [];
   canvas.ripples = [];
@@ -956,12 +1419,24 @@ $btnClear.addEventListener('click', function() {
 
 function clearCanvasFull() {
   if (!canvas.ctx) return;
-  // Save and reset transform so we fill the entire buffer
+  // Save and reset transform so we clear the entire buffer.
+  // Ghost-trail eradication (Task A8): this used to fillRect an OPAQUE
+  // '#0d1b2a' bg-color veil directly onto the canvas element. That painted a
+  // real opaque pixel layer that every registry mode's destination-out erase
+  // would then be fading TOWARD (an opaque color) instead of toward true
+  // transparency -- defeating the whole veil fix the moment a kid tapped
+  // Clear. clearRect restores true transparency so the #0d1b2a screen behind
+  // #main-canvas shows through directly, matching what destination-out erases
+  // toward on every subsequent frame.
   canvas.ctx.save();
   canvas.ctx.setTransform(1, 0, 0, 1, 0, 0);
-  canvas.ctx.fillStyle = '#0d1b2a';
-  canvas.ctx.fillRect(0, 0, $mainCanvas.width, $mainCanvas.height);
+  canvas.ctx.clearRect(0, 0, $mainCanvas.width, $mainCanvas.height);
   canvas.ctx.restore();
+
+  if (isRegistryMode(MODES[state.canvasMode])) {
+    canvas.regState = null; canvas.regId = null;
+    ensureRegState(MODES[state.canvasMode]);
+  }
 }
 
 // --- Save Canvas Art ---
@@ -1027,6 +1502,13 @@ var gentlePrompt = {
 function startGentlePromptTimer() {
   if (gentlePrompt.shown) return;
   clearTimeout(gentlePrompt.timer);
+  var devControl = state.activeProfileId ? getProfileDevControl(state.activeProfileId) : {};
+  var promptDelaySeconds = Number(devControl.promptDelaySeconds);
+  if (devControl.promptEnabled === false) return;
+  if (Number.isFinite(promptDelaySeconds) && promptDelaySeconds > 0 && promptDelaySeconds <= 600) {
+    gentlePrompt.timer = setTimeout(showGentleOrb, promptDelaySeconds * 1000);
+    return;
+  }
   // 3-5 min random delay (180-300s)
   var delay = (180 + Math.random() * 120) * 1000;
   gentlePrompt.timer = setTimeout(showGentleOrb, delay);
@@ -1044,8 +1526,12 @@ function showGentleOrb() {
   if (state.screen !== 'canvas' || gentlePrompt.shown) return;
   gentlePrompt.shown = true;
   $gentleOrb.classList.add('visible');
+  recordSignal('prompt_shown', {});
   // Auto-fade after 30s if not tapped
-  gentlePrompt.fadeTimer = setTimeout(hideGentleOrb, 30000);
+  gentlePrompt.fadeTimer = setTimeout(function() {
+    recordSignal('prompt_ignored', {});
+    hideGentleOrb();
+  }, 30000);
 }
 
 function hideGentleOrb() {
@@ -1066,6 +1552,7 @@ $gentleOrb.addEventListener('click', function(e) {
   } else {
     $promptChoice.classList.add('visible');
     gentlePrompt.choiceOpen = true;
+    recordSignal('prompt_opened', {});
   }
 });
 
@@ -1245,6 +1732,7 @@ var exerciseFlow = {
   exerciseType: null,   // 'breathe' | 'ground'
   energyBefore: null,
   energyAfter: null,
+  completed: false,
 };
 
 // --- Energy Check-In ---
@@ -1256,8 +1744,10 @@ var $energyCheckinGo = document.getElementById('energy-checkin-go');
 
 function startEnergyCheckin(exerciseType) {
   exerciseFlow.exerciseType = exerciseType;
+  recordSignal('exercise_choice', { exerciseType: exerciseFlow.exerciseType });
   exerciseFlow.energyBefore = null;
   exerciseFlow.energyAfter = null;
+  exerciseFlow.completed = false;
   renderEnergyLevels($energyCheckinLevels, 'checkin');
   $energyCheckinGo.disabled = true;
   $energyCheckin.classList.add('active');
@@ -1310,6 +1800,7 @@ $energyCheckinLevels.addEventListener('click', function(e) {
 $energyCheckinGo.addEventListener('click', function() {
   if (exerciseFlow.energyBefore === null) return;
   $energyCheckin.classList.remove('active');
+  recordSignal('exercise_started', { exerciseType: exerciseFlow.exerciseType });
   if (exerciseFlow.exerciseType === 'breathe') {
     openBreatheOverlay();
   } else if (exerciseFlow.exerciseType === 'ground') {
@@ -1319,7 +1810,7 @@ $energyCheckinGo.addEventListener('click', function() {
 
 $energyCheckinClose.addEventListener('click', function() {
   $energyCheckin.classList.remove('active');
-  exerciseFlow.exerciseType = null;
+  closeExerciseFlow();
 });
 
 // --- Grounding Exercise ---
@@ -1510,19 +2001,23 @@ function showCheckoutComparison() {
 
 $checkoutFinish.addEventListener('click', function() {
   $energyCheckout.classList.remove('active');
-  exerciseFlow.exerciseType = null;
+  closeExerciseFlow();
 });
 
 $energyCheckoutClose.addEventListener('click', function() {
   $energyCheckout.classList.remove('active');
-  exerciseFlow.exerciseType = null;
+  closeExerciseFlow();
 });
 
 // Close exercise flow without checkout (user closed mid-exercise)
 function closeExerciseFlow() {
+  if (exerciseFlow.exerciseType && !exerciseFlow.completed) {
+    recordSignal('exercise_closed', { exerciseType: exerciseFlow.exerciseType });
+  }
   exerciseFlow.exerciseType = null;
   exerciseFlow.energyBefore = null;
   exerciseFlow.energyAfter = null;
+  exerciseFlow.completed = false;
 }
 
 // --- Session Logging ---
@@ -1546,6 +2041,12 @@ function logSession() {
   } catch (e) {
     // silent
   }
+  recordSignal('exercise_completed', {
+    exerciseType: exerciseFlow.exerciseType,
+    energyBefore: exerciseFlow.energyBefore,
+    energyAfter: exerciseFlow.energyAfter,
+  });
+  exerciseFlow.completed = true;
 
   // Notify parent
   var profile = state.profiles.find(function(p) { return p && p.id === state.activeProfileId; });
@@ -1563,18 +2064,40 @@ var SOUNDS = [
   { id: 'whitenoise', name: 'White Noise' },
 ];
 
+var MUSIC_TRACKS = [
+  { id: 'bowls',      name: 'Bowls',       file: 'audio/music/bowls.mp3' },
+  { id: 'tides',      name: 'Tides',       file: 'audio/music/tides.mp3' },
+  { id: 'forestrain', name: 'Forest Rain', file: 'audio/music/forest-rain.mp3' },
+];
+var LOOP_EDGE_S = 0.15; // runtime loop points trim encoder padding
+// Rain droplet pitches: A-major pentatonic at A=432 —
+// mix of exact JI ratios from 216 (1/1, 9/8, 3/2) and rounded 12-TET (maj3, maj6).
+var DROPLET_FREQS = [216, 243, 272, 324, 363];
+
 var audio = {
   ctx: null,
   masterGain: null,
-  currentId: null,     // 'rain' | 'drone' | null
-  currentNodes: null,  // { gain, stop }
+  musicBus: null,      // Soundscape 2.0 buses
+  ambientBus: null,
+  sfxBus: null,
+  entrainGain: null,
+  currentId: null,     // ambient layer (legacy field names kept for compat)
+  currentNodes: null,
   playing: false,
+  musicId: null,       // music layer
+  musicNodes: null,
+  musicPlaying: false,
+  musicBuffer: null,   // single decoded track held at a time
+  musicBufferId: null,
+  musicGen: 0,         // decode-lifecycle generation counter
+  pauseSnapshot: null, // remembered layers for play/pause
   volume: 0.5,
 };
 
 var $btnSound = document.getElementById('btn-sound');
 var $soundPanel = document.getElementById('sound-panel');
 var $soundOptions = document.getElementById('sound-options');
+var $musicOptions = document.getElementById('music-options');
 var $btnPlayPause = document.getElementById('btn-play-pause');
 var $iconPlay = document.getElementById('icon-play');
 var $iconPause = document.getElementById('icon-pause');
@@ -1587,8 +2110,34 @@ function ensureAudioContext() {
     audio.masterGain = audio.ctx.createGain();
     audio.masterGain.gain.value = audio.volume;
     audio.masterGain.connect(audio.ctx.destination);
+
+    // Soundscape 2.0 layer buses
+    audio.musicBus = audio.ctx.createGain();
+    audio.musicBus.connect(audio.masterGain);
+    audio.sfxBus = audio.ctx.createGain();
+    audio.sfxBus.gain.value = 0.5;
+    audio.sfxBus.connect(audio.masterGain);
+    // Ambient chain: ambientBus -> entrainGain -> masterGain
+    audio.entrainGain = audio.ctx.createGain();
+    audio.entrainGain.connect(audio.masterGain);
+    audio.ambientBus = audio.ctx.createGain();
+    audio.ambientBus.connect(audio.entrainGain);
+
+    if (entrainment.rate) {
+      var pending = entrainment.rate;
+      entrainment.rate = null;
+      applyEntrainment(pending);
+    }
   } catch (e) {
-    // Web Audio not supported
+    // Web Audio not supported, or init failed partway — reset so a later
+    // call can retry cleanly instead of reusing a half-built graph.
+    if (audio.ctx) { try { audio.ctx.close(); } catch (e2) {} }
+    audio.ctx = null;
+    audio.masterGain = null;
+    audio.musicBus = null;
+    audio.ambientBus = null;
+    audio.sfxBus = null;
+    audio.entrainGain = null;
   }
 }
 
@@ -1606,96 +2155,230 @@ function getNoiseBuffer() {
   return buf;
 }
 
+var _pinkBuffer = null;
+function getPinkNoiseBuffer() {
+  // Paul Kellet pink-noise approximation, precomputed into a loop buffer.
+  // Generates 1s extra and keeps the LAST 4s: head and tail then both carry
+  // converged filter state, so the loop seam is an ordinary interior step
+  // instead of a zero-state-vs-converged jump (audible-tick prevention).
+  if (_pinkBuffer) return _pinkBuffer;
+  var ctx = audio.ctx;
+  var warm = ctx.sampleRate;           // 1s discarded warm-up
+  var len = ctx.sampleRate * 4;
+  var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  var data = buf.getChannelData(0);
+  var b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (var i = 0; i < warm + len; i++) {
+    var white = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + white * 0.0555179;
+    b1 = 0.99332 * b1 + white * 0.0750759;
+    b2 = 0.96900 * b2 + white * 0.1538520;
+    b3 = 0.86650 * b3 + white * 0.3104856;
+    b4 = 0.55000 * b4 + white * 0.5329522;
+    b5 = -0.7616 * b5 - white * 0.0168980;
+    if (i >= warm) {
+      data[i - warm] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+    }
+    b6 = white * 0.115926;
+  }
+  _pinkBuffer = buf;
+  return buf;
+}
+
 // --- Rain Generator ---
 
 function createRain(ctx, dest) {
   var buf = getNoiseBuffer();
 
-  // Main rain texture
-  var noise = ctx.createBufferSource();
-  noise.buffer = buf;
-  noise.loop = true;
+  var mix = ctx.createGain();
+  mix.gain.value = 1;
+  // Cap the hiss edge for the whole texture
+  var cap = ctx.createBiquadFilter();
+  cap.type = 'lowpass';
+  cap.frequency.value = 6000;
+  mix.connect(cap);
+  cap.connect(dest);
 
-  var bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.value = 2000;
-  bp.Q.value = 0.5;
+  // Mid body ~1.5 kHz
+  var body = ctx.createBufferSource();
+  body.buffer = buf;
+  body.loop = true;
+  var bodyBp = ctx.createBiquadFilter();
+  bodyBp.type = 'bandpass';
+  bodyBp.frequency.value = 1500;
+  bodyBp.Q.value = 0.6;
+  var bodyGain = ctx.createGain();
+  bodyGain.gain.value = 0.18;
+  body.connect(bodyBp);
+  bodyBp.connect(bodyGain);
+  bodyGain.connect(mix);
 
-  var gain = ctx.createGain();
-  gain.gain.value = 0.25;
+  // High patter ~4.5 kHz, gentle
+  var patter = ctx.createBufferSource();
+  patter.buffer = buf;
+  patter.loop = true;
+  var patterBp = ctx.createBiquadFilter();
+  patterBp.type = 'bandpass';
+  patterBp.frequency.value = 4500;
+  patterBp.Q.value = 0.8;
+  var patterGain = ctx.createGain();
+  patterGain.gain.value = 0.06;
+  patter.connect(patterBp);
+  patterBp.connect(patterGain);
+  patterGain.connect(mix);
 
-  noise.connect(bp);
-  bp.connect(gain);
-  gain.connect(dest);
-  noise.start();
-
-  // Low rumble
+  // Low rumble at 81 Hz (E in the A=432 family)
   var rumble = ctx.createOscillator();
   rumble.type = 'sine';
-  rumble.frequency.value = 80;
+  rumble.frequency.value = 81;
   var rumbleGain = ctx.createGain();
   rumbleGain.gain.value = 0.04;
   rumble.connect(rumbleGain);
-  rumbleGain.connect(dest);
-  rumble.start();
+  rumbleGain.connect(mix);
 
-  // Amplitude modulation (slow variation)
-  var lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = 0.15;
-  var lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.06;
-  lfo.connect(lfoGain);
-  lfoGain.connect(gain.gain);
-  lfo.start();
+  // Incommensurate LFOs so the texture never audibly cycles
+  var lfo1 = ctx.createOscillator();
+  lfo1.type = 'sine';
+  lfo1.frequency.value = 0.07;
+  var lfo1Gain = ctx.createGain();
+  lfo1Gain.gain.value = 0.05;
+  lfo1.connect(lfo1Gain);
+  lfo1Gain.connect(bodyGain.gain);
+
+  var lfo2 = ctx.createOscillator();
+  lfo2.type = 'sine';
+  lfo2.frequency.value = 0.13;
+  var lfo2Gain = ctx.createGain();
+  lfo2Gain.gain.value = 0.03;
+  lfo2.connect(lfo2Gain);
+  lfo2Gain.connect(patterGain.gain);
+
+  // Sparse droplet grains — 432-family pentatonic, barely audible
+  // NOTE: same wall-clock-timer-during-suspend invariant as the ocean wave
+  // engine — repeated firings while hidden are harmless (osc lifetimes are
+  // self-contained and the ctx renders nothing while suspended).
+  var dropletTimer = null;
+  function scheduleDroplet() {
+    dropletTimer = setTimeout(function() {
+      try {
+        var t = ctx.currentTime;
+        var osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = DROPLET_FREQS[Math.floor(Math.random() * DROPLET_FREQS.length)];
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.02, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+        osc.connect(g);
+        g.connect(mix);
+        osc.start(t);
+        osc.stop(t + 0.5);
+      } catch (e) {}
+      scheduleDroplet();
+    }, 2000 + Math.random() * 4000);
+  }
+
+  body.start();
+  patter.start();
+  rumble.start();
+  lfo1.start();
+  lfo2.start();
+  scheduleDroplet();
 
   return {
-    gain: gain,
+    gain: mix,
     stop: function() {
-      try { noise.stop(); } catch(e) {}
-      try { rumble.stop(); } catch(e) {}
-      try { lfo.stop(); } catch(e) {}
+      clearTimeout(dropletTimer);
+      try { body.stop(); } catch (e) {}
+      try { patter.stop(); } catch (e) {}
+      try { rumble.stop(); } catch (e) {}
+      try { lfo1.stop(); } catch (e) {}
+      try { lfo2.stop(); } catch (e) {}
     },
   };
 }
 
 // --- Drone Generator ---
 
+function detunedPair(ctx, freq, gainValue, dest) {
+  // Two oscillators ±3 cents apart: slow phase drift = natural warmth.
+  var g = ctx.createGain();
+  g.gain.value = gainValue;
+  g.connect(dest);
+  // 0.5 sum-scaler: the two ±3¢ oscillators are highly correlated, so summing
+  // near-doubles amplitude; halving keeps nominal gain comparable to one osc.
+  var half = ctx.createGain();
+  half.gain.value = 0.5;
+  half.connect(g);
+  var oa = ctx.createOscillator();
+  oa.type = 'sine';
+  oa.frequency.value = freq;
+  oa.detune.value = -3;
+  var ob = ctx.createOscillator();
+  ob.type = 'sine';
+  ob.frequency.value = freq;
+  ob.detune.value = 3;
+  oa.connect(half);
+  ob.connect(half);
+  oa.start();
+  ob.start();
+  return {
+    stop: function() {
+      try { oa.stop(); } catch (e) {}
+      try { ob.stop(); } catch (e) {}
+    },
+  };
+}
+
 function createDrone(ctx, dest) {
-  // Base tone: C2 ~65Hz
-  var osc1 = ctx.createOscillator();
-  osc1.type = 'sine';
-  osc1.frequency.value = 65;
-  var g1 = ctx.createGain();
-  g1.gain.value = 0.15;
-  osc1.connect(g1);
+  var mixGain = ctx.createGain();
+  mixGain.gain.value = 1;
+  mixGain.connect(dest);
 
-  // Octave harmonic: 130Hz at 30%
-  var osc2 = ctx.createOscillator();
-  osc2.type = 'sine';
-  osc2.frequency.value = 130;
-  var g2 = ctx.createGain();
-  g2.gain.value = 0.045;
-  osc2.connect(g2);
+  // Gentle lowpass over the oscillator stack. NOTE: on pure sines its audible
+  // effect is minimal — the drone's "breathing" comes from the 0.1 Hz amplitude
+  // swell and the ±3-cent pair beating below, not this filter.
+  var sweep = ctx.createBiquadFilter();
+  sweep.type = 'lowpass';
+  sweep.frequency.value = 400;
+  sweep.connect(mixGain);
 
-  // Sub-harmonic: 32.5Hz at 20%
-  var osc3 = ctx.createOscillator();
-  osc3.type = 'sine';
-  osc3.frequency.value = 32.5;
-  var g3 = ctx.createGain();
-  g3.gain.value = 0.03;
-  osc3.connect(g3);
+  // 432-family stack (C in A=432 temperament), each a detuned pair
+  var base = detunedPair(ctx, 64.22, 0.15, sweep);     // C2
+  var octave = detunedPair(ctx, 128.43, 0.045, sweep); // C3
+  var sub = detunedPair(ctx, 32.11, 0.03, sweep);      // C1
 
-  // Slow pitch wobble on base
-  var lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = 0.05;
-  var lfoGain = ctx.createGain();
-  lfoGain.gain.value = 2;
-  lfo.connect(lfoGain);
-  lfoGain.connect(osc1.frequency);
+  // Filter sweep LFO (~0.03 Hz) — subtle at best on sine partials (kept for cheapness)
+  var sweepLfo = ctx.createOscillator();
+  sweepLfo.type = 'sine';
+  sweepLfo.frequency.value = 0.03;
+  var sweepDepth = ctx.createGain();
+  sweepDepth.gain.value = 250;
+  sweepLfo.connect(sweepDepth);
+  sweepDepth.connect(sweep.frequency);
+  sweepLfo.start();
 
-  // Noise texture layer
+  // Amplitude swell at calm-breath pace (~0.1 Hz = 6 breaths/min)
+  var breath = ctx.createOscillator();
+  breath.type = 'sine';
+  breath.frequency.value = 0.1;
+  var breathDepth = ctx.createGain();
+  breathDepth.gain.value = 0.04;
+  breath.connect(breathDepth);
+  breathDepth.connect(mixGain.gain);
+  breath.start();
+
+  // Intrinsic gentle theta tremor (~6 Hz, very low depth)
+  var tremor = ctx.createOscillator();
+  tremor.type = 'sine';
+  tremor.frequency.value = 6;
+  var tremorDepth = ctx.createGain();
+  tremorDepth.gain.value = 0.02;
+  tremor.connect(tremorDepth);
+  tremorDepth.connect(mixGain.gain);
+  tremor.start();
+
+  // Soft noise texture layer
   var noiseSrc = ctx.createBufferSource();
   noiseSrc.buffer = getNoiseBuffer();
   noiseSrc.loop = true;
@@ -1706,30 +2389,19 @@ function createDrone(ctx, dest) {
   noiseGain.gain.value = 0.015;
   noiseSrc.connect(noiseLp);
   noiseLp.connect(noiseGain);
-
-  // Mix into a single gain node for crossfade control
-  var mixGain = ctx.createGain();
-  mixGain.gain.value = 1;
-  g1.connect(mixGain);
-  g2.connect(mixGain);
-  g3.connect(mixGain);
   noiseGain.connect(mixGain);
-  mixGain.connect(dest);
-
-  osc1.start();
-  osc2.start();
-  osc3.start();
-  lfo.start();
   noiseSrc.start();
 
   return {
     gain: mixGain,
     stop: function() {
-      try { osc1.stop(); } catch(e) {}
-      try { osc2.stop(); } catch(e) {}
-      try { osc3.stop(); } catch(e) {}
-      try { lfo.stop(); } catch(e) {}
-      try { noiseSrc.stop(); } catch(e) {}
+      base.stop();
+      octave.stop();
+      sub.stop();
+      try { sweepLfo.stop(); } catch (e) {}
+      try { breath.stop(); } catch (e) {}
+      try { tremor.stop(); } catch (e) {}
+      try { noiseSrc.stop(); } catch (e) {}
     },
   };
 }
@@ -1739,33 +2411,51 @@ function createDrone(ctx, dest) {
 function createOcean(ctx, dest) {
   var buf = getNoiseBuffer();
 
-  // Main wave layer
+  var mix = ctx.createGain();
+  mix.gain.value = 1;
+  // Uniform loudness scale toward picker parity. Must be its own node:
+  // mix.gain is the crossfade handle playSound ramps 0->1, so any value
+  // planted there is overwritten on select.
+  var scale = ctx.createGain();
+  scale.gain.value = 1.4;
+  mix.connect(scale);
+  var pan = null;
+  if (ctx.createStereoPanner) {
+    pan = ctx.createStereoPanner();
+    scale.connect(pan);
+    pan.connect(dest);
+  } else {
+    scale.connect(dest);
+  }
+
+  // Wave body
   var noise = ctx.createBufferSource();
   noise.buffer = buf;
   noise.loop = true;
-
   var bp = ctx.createBiquadFilter();
   bp.type = 'bandpass';
   bp.frequency.value = 1000;
   bp.Q.value = 0.3;
-
-  var gain = ctx.createGain();
-  gain.gain.value = 0.2;
-
+  var waveGain = ctx.createGain();
+  waveGain.gain.value = 0.05;
   noise.connect(bp);
-  bp.connect(gain);
+  bp.connect(waveGain);
+  waveGain.connect(mix);
 
-  // Slow amplitude LFO for wave motion (~0.08Hz = one cycle every 12s)
-  var lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = 0.08;
-  var lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.15;
-  lfo.connect(lfoGain);
-  lfoGain.connect(gain.gain);
-  lfo.start();
+  // Foam wash: high-passed, synced to each crest
+  var foam = ctx.createBufferSource();
+  foam.buffer = buf;
+  foam.loop = true;
+  var hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 2000;
+  var foamGain = ctx.createGain();
+  foamGain.gain.value = 0.0001;
+  foam.connect(hp);
+  hp.connect(foamGain);
+  foamGain.connect(mix);
 
-  // Deep water rumble
+  // Deep water
   var deep = ctx.createBufferSource();
   deep.buffer = buf;
   deep.loop = true;
@@ -1773,26 +2463,59 @@ function createOcean(ctx, dest) {
   deepLp.type = 'lowpass';
   deepLp.frequency.value = 300;
   var deepGain = ctx.createGain();
-  deepGain.gain.value = 0.08;
+  deepGain.gain.value = 0.14;
   deep.connect(deepLp);
   deepLp.connect(deepGain);
+  deepGain.connect(mix);
 
-  // Mix
-  var mixGain = ctx.createGain();
-  mixGain.gain.value = 1;
-  gain.connect(mixGain);
-  deepGain.connect(mixGain);
-  mixGain.connect(dest);
+  // Slow stereo drift
+  var panLfo = null;
+  if (pan) {
+    panLfo = ctx.createOscillator();
+    panLfo.type = 'sine';
+    panLfo.frequency.value = 0.017;
+    var panDepth = ctx.createGain();
+    panDepth.gain.value = 0.4;
+    panLfo.connect(panDepth);
+    panDepth.connect(pan.pan);
+    panLfo.start();
+  }
+
+  // Wave engine: every wave gets its own randomized envelope — no audible loop.
+  // NOTE: setTimeout keeps firing on wall-clock while the ctx is suspended
+  // (tab hidden); repeated firings all land on the frozen currentTime and
+  // cancelScheduledValues makes them safe — only the last envelope survives.
+  var waveTimer = null;
+  function scheduleWave() {
+    var period = 8 + Math.random() * 8;               // 8–16 s
+    var peak = 0.12 + Math.random() * 0.13;           // varying height
+    var rise = period * (0.35 + Math.random() * 0.15);
+    var t = ctx.currentTime;
+    waveGain.gain.cancelScheduledValues(t);
+    waveGain.gain.setValueAtTime(Math.max(0.04, waveGain.gain.value), t);
+    waveGain.gain.linearRampToValueAtTime(peak, t + rise);
+    waveGain.gain.linearRampToValueAtTime(0.06, t + period);
+    foamGain.gain.cancelScheduledValues(t);
+    foamGain.gain.setValueAtTime(0.0001, t);
+    foamGain.gain.setValueAtTime(0.0001, t + rise * 0.9);
+    foamGain.gain.linearRampToValueAtTime(peak * 0.35, t + rise);
+    foamGain.gain.exponentialRampToValueAtTime(0.0001, t + rise + 2.5);
+    waveTimer = setTimeout(scheduleWave, period * 1000);
+  }
 
   noise.start();
+  foam.start();
   deep.start();
+  scheduleWave();
 
   return {
-    gain: mixGain,
+    gain: mix,
     stop: function() {
-      try { noise.stop(); } catch(e) {}
-      try { deep.stop(); } catch(e) {}
-      try { lfo.stop(); } catch(e) {}
+      clearTimeout(waveTimer);
+      try { noise.stop(); } catch (e) {}
+      try { foam.stop(); } catch (e) {}
+      try { deep.stop(); } catch (e) {}
+      if (panLfo) { try { panLfo.stop(); } catch (e) {} }
     },
   };
 }
@@ -1800,29 +2523,47 @@ function createOcean(ctx, dest) {
 // --- White Noise Generator ---
 
 function createWhiteNoise(ctx, dest) {
-  var buf = getNoiseBuffer();
-
   var noise = ctx.createBufferSource();
-  noise.buffer = buf;
+  noise.buffer = getPinkNoiseBuffer();
   noise.loop = true;
 
-  // Soften slightly with lowpass
-  var lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 8000;
+  // Soften remaining top end further
+  var shelf = ctx.createBiquadFilter();
+  shelf.type = 'highshelf';
+  shelf.frequency.value = 3000;
+  shelf.gain.value = -6;
 
-  var gain = ctx.createGain();
-  gain.gain.value = 0.18;
+  // Internal level driver. NOT the crossfade handle: playSound schedules
+  // setValueAtTime(0) + ramp-to-1 on the returned gain at select, which
+  // would wipe any preset value planted there (see ocean commit 2f37861).
+  var level = ctx.createGain();
+  level.gain.value = 0.25;
 
-  noise.connect(lp);
-  lp.connect(gain);
+  var gain = ctx.createGain(); // crossfade handle (playSound ramps this 0->1)
+  gain.gain.value = 1;
+
+  // Barely perceptible undulation so it doesn't feel frozen. Targets the
+  // level node, not the crossfade handle, to avoid two writers on one AudioParam.
+  var lfo = ctx.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.value = 0.05;
+  var lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.02;
+  lfo.connect(lfoGain);
+  lfoGain.connect(level.gain);
+
+  noise.connect(shelf);
+  shelf.connect(level);
+  level.connect(gain);
   gain.connect(dest);
   noise.start();
+  lfo.start();
 
   return {
     gain: gain,
     stop: function() {
-      try { noise.stop(); } catch(e) {}
+      try { noise.stop(); } catch (e) {}
+      try { lfo.stop(); } catch (e) {}
     },
   };
 }
@@ -1836,7 +2577,8 @@ var generators = {
 
 // --- Crossfade ---
 
-function playSound(soundId) {
+function playSound(soundId, options) {
+  options = options || {};
   ensureAudioContext();
   if (!audio.ctx) return;
   if (audio.ctx.state === 'suspended') audio.ctx.resume();
@@ -1846,16 +2588,21 @@ function playSound(soundId) {
   // Fade out current
   if (audio.currentNodes) {
     var old = audio.currentNodes;
+    old.gain.gain.cancelScheduledValues(ctx.currentTime);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
     old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
     setTimeout(function() { try { old.stop(); } catch(e) {} }, 600);
   }
 
   // If selecting same sound while playing, just stop (toggle off)
   if (soundId === audio.currentId && audio.playing) {
+    if (audio.pauseSnapshot) audio.pauseSnapshot.soundId = null;
     audio.currentId = null;
     audio.currentNodes = null;
     audio.playing = false;
     updateSoundUI();
+    updateDucking();
+    recordSignal('sound_stop', { soundId: soundId, layer: 'ambient' });
     saveSoundPrefs();
     return;
   }
@@ -1864,14 +2611,18 @@ function playSound(soundId) {
   var gen = generators[soundId];
   if (!gen) return;
 
-  var nodes = gen(ctx, audio.masterGain);
+  var nodes = gen(ctx, audio.ambientBus);
   nodes.gain.gain.setValueAtTime(0, ctx.currentTime);
   nodes.gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.5);
 
   audio.currentId = soundId;
   audio.currentNodes = nodes;
   audio.playing = true;
+  if (!options.suppressSignal) {
+    recordSignal('sound_select', { soundId: soundId, layer: 'ambient' });
+  }
   updateSoundUI();
+  updateDucking();
   saveSoundPrefs();
 }
 
@@ -1879,24 +2630,366 @@ function stopSound() {
   if (!audio.ctx || !audio.currentNodes) return;
   var ctx = audio.ctx;
   var old = audio.currentNodes;
+  var stoppedSoundId = audio.currentId;
+  old.gain.gain.cancelScheduledValues(ctx.currentTime);
+  old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
   old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
   setTimeout(function() { try { old.stop(); } catch(e) {} }, 600);
   audio.currentNodes = null;
   audio.playing = false;
+  if (stoppedSoundId) recordSignal('sound_stop', { soundId: stoppedSoundId, layer: 'ambient' });
   updateSoundUI();
+  updateDucking();
   saveSoundPrefs();
+}
+
+// --- Music layer (Soundscape 2.0) ---
+
+function getMusicTrack(trackId) {
+  for (var i = 0; i < MUSIC_TRACKS.length; i++) {
+    if (MUSIC_TRACKS[i].id === trackId) return MUSIC_TRACKS[i];
+  }
+  return null;
+}
+
+var musicLoad = { promise: null, trackId: null };
+
+function loadMusicBuffer(track) {
+  if (audio.musicBufferId === track.id && audio.musicBuffer) {
+    return Promise.resolve(audio.musicBuffer);
+  }
+  // De-dupe: reuse an in-flight decode of the same track.
+  if (musicLoad.promise && musicLoad.trackId === track.id) {
+    return musicLoad.promise;
+  }
+  var p = fetch(track.file)
+    .then(function(res) {
+      if (!res.ok) throw new Error('fetch failed: ' + track.file);
+      return res.arrayBuffer();
+    })
+    .then(function(data) {
+      return audio.ctx.decodeAudioData(data);
+    })
+    .then(function(buffer) {
+      if (musicLoad.promise === p) { musicLoad.promise = null; musicLoad.trackId = null; }
+      return buffer;
+    }, function(err) {
+      if (musicLoad.promise === p) { musicLoad.promise = null; musicLoad.trackId = null; }
+      throw err;
+    });
+  musicLoad.promise = p;
+  musicLoad.trackId = track.id;
+  return p;
+}
+
+function markTrackUnavailable(trackId) {
+  var btn = $musicOptions.querySelector('[data-music="' + trackId + '"]');
+  if (btn) btn.classList.add('unavailable');
+  if (audio.musicId === trackId) {
+    audio.musicId = null;
+    audio.musicPlaying = false;
+  }
+  updateSoundUI();
+  updateDucking();
+}
+
+function playMusic(trackId, options) {
+  options = options || {};
+  ensureAudioContext();
+  if (!audio.ctx) return;
+  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+  var ctx = audio.ctx;
+
+  // Re-tap active track = toggle off
+  if (trackId === audio.musicId && audio.musicPlaying) {
+    if (audio.pauseSnapshot) audio.pauseSnapshot.musicId = null;
+    stopMusic();
+    return;
+  }
+  var track = getMusicTrack(trackId);
+  if (!track) return;
+
+  audio.musicGen += 1;
+  var gen = audio.musicGen;
+
+  // Fade out current music
+  if (audio.musicNodes) {
+    var old = audio.musicNodes;
+    old.gain.gain.cancelScheduledValues(ctx.currentTime);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
+    old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+    setTimeout(function() { try { old.stop(); } catch (e) {} }, 600);
+    audio.musicNodes = null;
+  }
+
+  audio.musicId = trackId;
+  audio.musicPlaying = true;
+  if (!options.suppressSignal) {
+    recordSignal('sound_select', { soundId: trackId, layer: 'music' });
+  }
+  updateSoundUI();
+  updateDucking();
+  saveSoundPrefs();
+
+  loadMusicBuffer(track).then(function(buffer) {
+    // Bail if this decode outlived its selection (switch/stop/exit since).
+    if (!buffer || gen !== audio.musicGen || audio.musicId !== trackId || !audio.musicPlaying) return;
+    // Memory rule: single decoded track, written only by the current selection.
+    audio.musicBuffer = buffer;
+    audio.musicBufferId = track.id;
+    var src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.loopStart = LOOP_EDGE_S;
+    src.loopEnd = Math.max(LOOP_EDGE_S, buffer.duration - LOOP_EDGE_S);
+    var gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.5);
+    src.connect(gain);
+    gain.connect(audio.musicBus);
+    src.start(0, LOOP_EDGE_S);
+    audio.musicNodes = {
+      gain: gain,
+      stop: function() { try { src.stop(); } catch (e) {} },
+    };
+  }).catch(function() {
+    if (gen === audio.musicGen) markTrackUnavailable(trackId);
+  });
+}
+
+function stopMusic() {
+  audio.musicGen += 1;
+  var stoppedId = audio.musicId;
+  if (audio.ctx && audio.musicNodes) {
+    var ctx = audio.ctx;
+    var old = audio.musicNodes;
+    old.gain.gain.cancelScheduledValues(ctx.currentTime);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
+    old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+    setTimeout(function() { try { old.stop(); } catch (e) {} }, 600);
+  }
+  audio.musicNodes = null;
+  audio.musicPlaying = false;
+  if (stoppedId) recordSignal('sound_stop', { soundId: stoppedId, layer: 'music' });
+  updateSoundUI();
+  updateDucking();
+  saveSoundPrefs();
+}
+
+function updateDucking() {
+  // When both layers play, ambient becomes the bed under the music.
+  if (!audio.ctx || !audio.ambientBus) return;
+  var target = (audio.musicPlaying && audio.playing) ? 0.7 : 1.0;
+  audio.ambientBus.gain.setTargetAtTime(target, audio.ctx.currentTime, 0.7); // ~2s settle
+}
+
+// --- Entrainment modulator (dev-gated experiment) ---
+// Monaural amplitude modulation on the ambient bus. Evidence for these
+// rates is mixed/emerging — they are observable experiment variables,
+// never kid-visible controls, never defaults.
+// Depth 0.15: ~7.5x the drone's background theta tremor (0.02) — deep enough
+// to be measurable as a stimulus, shallow enough to stay comfortable at 40 Hz.
+
+var ENTRAINMENT_RATES = { theta: 6, alpha: 10, gamma40: 40 };
+var entrainment = { osc: null, depthGain: null, rate: null };
+
+function applyEntrainment(rateKey) {
+  var normalized = ENTRAINMENT_RATES[rateKey] ? rateKey : null;
+  if (!audio.ctx || !audio.entrainGain) {
+    entrainment.rate = normalized;
+    return;
+  }
+  if (normalized === entrainment.rate && entrainment.osc) return;
+  if (entrainment.osc) {
+    try { entrainment.osc.stop(); } catch (e) {}
+    entrainment.osc = null;
+    entrainment.depthGain = null;
+  }
+  var t = audio.ctx.currentTime;
+  if (!normalized) {
+    audio.entrainGain.gain.setTargetAtTime(1, t, 0.5);
+    entrainment.rate = null;
+    return;
+  }
+  var depth = 0.15;
+  audio.entrainGain.gain.setTargetAtTime(1 - depth, t, 0.5);
+  var osc = audio.ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = ENTRAINMENT_RATES[normalized];
+  var dg = audio.ctx.createGain();
+  dg.gain.value = depth;
+  osc.connect(dg);
+  dg.connect(audio.entrainGain.gain);
+  osc.start();
+  entrainment.osc = osc;
+  entrainment.depthGain = dg;
+  entrainment.rate = normalized;
+}
+
+// --- Visual reactivity feed (CALM_VIS) ---
+// One AnalyserNode on masterGain -> smoothed 0..1 energy consumed by
+// animation modes as bounded multipliers. Silence => exactly 0.
+// Per-profile dev kill-switch: visualReactivity (default on).
+
+// Intentional duplicate of registry.js's window.CALM_VIS init: updateVisEnergy()
+// runs at the top of tickCanvas, OUTSIDE the registry try/catch, so this must
+// exist even if registry.js fails to load (offline cache-miss) — otherwise the
+// rAF loop TypeErrors every frame and the canvas freezes. Do not delete.
+window.CALM_VIS = { energy: 0 };
+var visFeed = { analyser: null, data: null, enabled: true };
+
+function ensureVisAnalyser() {
+  if (visFeed.analyser || !audio.ctx || !audio.masterGain) return;
+  visFeed.analyser = audio.ctx.createAnalyser();
+  visFeed.analyser.fftSize = 256;
+  visFeed.data = new Uint8Array(visFeed.analyser.fftSize);
+  audio.masterGain.connect(visFeed.analyser); // tap only; no output routing
+}
+
+function applyVisualReactivity(profileId) {
+  var control = getProfileDevControl(profileId);
+  visFeed.enabled = control.visualReactivity !== false;
+  if (!visFeed.enabled) window.CALM_VIS.energy = 0;
+}
+
+function updateVisEnergy(dt) {
+  if (!visFeed.enabled) { window.CALM_VIS.energy = 0; return; }
+  if (!visFeed.analyser) { ensureVisAnalyser(); if (!visFeed.analyser) { window.CALM_VIS.energy = 0; return; } }
+  visFeed.analyser.getByteTimeDomainData(visFeed.data);
+  var sum = 0;
+  for (var i = 0; i < visFeed.data.length; i++) {
+    var v = (visFeed.data[i] - 128) / 128;
+    sum += v * v;
+  }
+  var rms = Math.sqrt(sum / visFeed.data.length);
+  var target = Math.min(1, rms * 6); // normalize: typical bed RMS ~0.03-0.17
+  var tau = (target > window.CALM_VIS.energy) ? 0.5 : 2.0; // attack/release
+  window.CALM_VIS.energy += (target - window.CALM_VIS.energy) * (1 - Math.exp(-dt / tau));
+  if (window.CALM_VIS.energy < 0.001) window.CALM_VIS.energy = 0;
+}
+
+// --- SFX accent layer (dev-gated experiment) ---
+// Sparse, soft, never surprising. Default OFF for every profile;
+// enabled per profile via ?dev=true controls only.
+
+var SFX_SOUNDS = [
+  { id: 'chime', file: 'audio/sfx/chime.mp3' },
+  // Extend as ElevenLabs assets land (water drop, soft bird, bowl swell).
+];
+var sfx = { timer: null, buffers: {}, active: false };
+
+function loadSfxBuffer(item) {
+  if (sfx.buffers[item.id]) return Promise.resolve(sfx.buffers[item.id]);
+  return fetch(item.file)
+    .then(function(res) {
+      if (!res.ok) throw new Error('sfx fetch failed');
+      return res.arrayBuffer();
+    })
+    .then(function(data) { return audio.ctx.decodeAudioData(data); })
+    .then(function(buffer) {
+      sfx.buffers[item.id] = buffer;
+      return buffer;
+    });
+}
+
+function playSfxAccent() {
+  if (!sfx.active || !audio.ctx || !audio.sfxBus) return;
+  var pick = SFX_SOUNDS[Math.floor(Math.random() * SFX_SOUNDS.length)];
+  // Accepted edge: a decode in flight across an exit+re-enter (sub-310 ms,
+  // first-ever accent only) can land under the next profile's log. Harmless
+  // (soft accent, dev-only telemetry); a generation guard wasn't worth it.
+  loadSfxBuffer(pick).then(function(buffer) {
+    if (!sfx.active || !buffer) return;
+    var src = audio.ctx.createBufferSource();
+    src.buffer = buffer;
+    var g = audio.ctx.createGain();
+    g.gain.value = 0.1 + Math.random() * 0.05; // conservative, slightly varied
+    src.connect(g);
+    g.connect(audio.sfxBus);
+    src.start();
+    recordSignal('sfx_played', { sfxId: pick.id });
+  }).catch(function() {
+    // Missing/undecodable asset: silent no-op.
+  });
+}
+
+function startSfxScheduler(profileId) {
+  stopSfxScheduler();
+  var control = getProfileDevControl(profileId);
+  if (!control.sfxEnabled) return;
+  sfx.active = true;
+  function scheduleNext() {
+    sfx.timer = setTimeout(function() {
+      playSfxAccent();
+      scheduleNext();
+    }, 45000 + Math.random() * 75000); // every ~45–120 s
+  }
+  // Never within the first 60 s of a session.
+  sfx.timer = setTimeout(function() {
+    playSfxAccent();
+    scheduleNext();
+  }, 60000 + Math.random() * 30000);
+}
+
+function stopSfxScheduler() {
+  sfx.active = false;
+  clearTimeout(sfx.timer);
+  sfx.timer = null;
 }
 
 function togglePlayPause() {
   ensureAudioContext();
-  if (audio.playing) {
-    stopSound();
-  } else if (audio.currentId) {
-    playSound(audio.currentId);
+  var anyPlaying = audio.playing || audio.musicPlaying;
+  if (anyPlaying) {
+    var prior = audio.pauseSnapshot || {};
+    audio.pauseSnapshot = {
+      soundId: audio.playing ? audio.currentId : (prior.soundId || null),
+      musicId: audio.musicPlaying ? audio.musicId : (prior.musicId || null),
+    };
+    if (audio.musicPlaying) stopMusic();
+    if (audio.playing) stopSound();
   } else {
-    // Default to rain if nothing selected
-    playSound('rain');
+    var r = audio.pauseSnapshot || {};
+    if (r.musicId) playMusic(r.musicId);
+    if (r.soundId) {
+      playSound(r.soundId);
+    } else if (!r.musicId) {
+      // Nothing remembered: default to rain (existing behavior)
+      playSound(audio.currentId || 'rain');
+    }
   }
+}
+
+var volumeSignalTimer = null;
+
+function recordVolumeChange(val) {
+  var profileId = state.activeProfileId;
+  var context = profileId ? getSignalContext(profileId) : null;
+  clearTimeout(volumeSignalTimer);
+  volumeSignalTimer = setTimeout(function() {
+    if (profileId) {
+      recordSignalForProfileWithContext(profileId, 'volume_change', { volume: val }, context);
+    }
+  }, 500);
+}
+
+// Size-slider signal, debounced 500ms — mirrors recordVolumeChange's
+// context-capture-at-call-time-then-fire-later pattern exactly, so a drag
+// across the slider emits one signal at rest, not one per input tick
+// (Task A5). Kept as its own timer/function (not reusing volumeSignalTimer)
+// since a size drag and a volume drag could otherwise race and clobber
+// each other's pending signal.
+var sizeSignalTimer = null;
+
+function recordSizeChange(mode, val) {
+  var profileId = state.activeProfileId;
+  var context = profileId ? getSignalContext(profileId) : null;
+  clearTimeout(sizeSignalTimer);
+  sizeSignalTimer = setTimeout(function() {
+    if (profileId) {
+      recordSignalForProfileWithContext(profileId, 'mode_control', { mode: mode, control: 'size', value: val }, context);
+    }
+  }, 500);
 }
 
 function setVolume(val) {
@@ -1904,6 +2997,7 @@ function setVolume(val) {
   if (audio.masterGain) {
     audio.masterGain.gain.setTargetAtTime(val, audio.ctx.currentTime, 0.05);
   }
+  recordVolumeChange(val);
   saveSoundPrefs();
 }
 
@@ -1927,15 +3021,32 @@ function renderSoundOptions() {
   });
 }
 
+function renderMusicOptions() {
+  $musicOptions.textContent = '';
+  MUSIC_TRACKS.forEach(function(t) {
+    var btn = document.createElement('button');
+    btn.className = 'sound-option' + (audio.musicId === t.id && audio.musicPlaying ? ' selected' : '');
+    btn.dataset.music = t.id;
+    var dot = document.createElement('span');
+    dot.className = 'sound-dot';
+    btn.appendChild(dot);
+    btn.appendChild(document.createTextNode(t.name));
+    $musicOptions.appendChild(btn);
+  });
+}
+
 function updateSoundUI() {
-  // Update option highlights
   var opts = $soundOptions.querySelectorAll('.sound-option');
   opts.forEach(function(btn) {
     btn.classList.toggle('selected', btn.dataset.sound === audio.currentId && audio.playing);
   });
+  var mopts = $musicOptions.querySelectorAll('.sound-option');
+  mopts.forEach(function(btn) {
+    btn.classList.toggle('selected', btn.dataset.music === audio.musicId && audio.musicPlaying);
+  });
 
-  // Play/pause icon
-  if (audio.playing) {
+  var anyPlaying = audio.playing || audio.musicPlaying;
+  if (anyPlaying) {
     $iconPlay.style.display = 'none';
     $iconPause.style.display = '';
     $btnPlayPause.classList.add('playing');
@@ -1948,6 +3059,23 @@ function updateSoundUI() {
   }
 }
 
+// --- Panel Exclusivity (Task A4) ---
+//
+// Four corner buttons now open trays/panels that share the same anchor zone
+// (sound, modes, style — clear has no panel). closeOtherPanels(except) is the
+// single place that enforces "only one open at a time": each opener calls it
+// with its own name so it closes the other two, never itself. This replaces
+// the previous ad-hoc two-way closes (sound<->modes) with one function all
+// three openers share — behavior is identical, just no longer duplicated.
+function closeOtherPanels(except) {
+  if (except !== 'sound') {
+    soundPanelOpen = false;
+    $soundPanel.classList.remove('open');
+  }
+  if (except !== 'modes') closeModeTray();
+  if (except !== 'style') closeStyleTray();
+}
+
 // --- Sound Panel Toggle ---
 
 var soundPanelOpen = false;
@@ -1957,7 +3085,10 @@ $btnSound.addEventListener('click', function(e) {
   ensureAudioContext(); // iOS requires user gesture
   soundPanelOpen = !soundPanelOpen;
   $soundPanel.classList.toggle('open', soundPanelOpen);
+  if (soundPanelOpen) closeOtherPanels('sound'); // panels share the corner anchor zone — one at a time
+  if (soundPanelOpen) recordSignal('sound_panel_open', {});
   if (soundPanelOpen) renderSoundOptions();
+  if (soundPanelOpen) renderMusicOptions();
 });
 
 // Close panel on outside click
@@ -1975,6 +3106,271 @@ $soundOptions.addEventListener('click', function(e) {
   playSound(btn.dataset.sound);
 });
 
+// Music option click
+$musicOptions.addEventListener('click', function(e) {
+  var btn = e.target.closest('.sound-option');
+  if (!btn) return;
+  playMusic(btn.dataset.music);
+});
+
+// --- Mode Tray Toggle (Task A3) ---
+
+var $btnModes = document.getElementById('btn-modes');
+var $modeTray = document.getElementById('mode-tray');
+var $modeOptions = document.getElementById('mode-options');
+var modeTrayOpen = false;
+
+function renderModeOptions() {
+  $modeOptions.textContent = '';
+  MODES.forEach(function (id) {
+    var btn = document.createElement('button');
+    btn.className = 'mode-option' + (MODES[state.canvasMode] === id ? ' selected' : '');
+    btn.dataset.mode = id;
+    btn.textContent = MODE_LABELS[id];
+    $modeOptions.appendChild(btn);
+  });
+}
+
+// Hoisted so $btnSound's (earlier) handler and backToProfiles can call it.
+function closeModeTray() {
+  modeTrayOpen = false;
+  $modeTray.classList.remove('open');
+  $btnModes.classList.remove('active');
+}
+
+$btnModes.addEventListener('click', function(e) {
+  e.stopPropagation();
+  modeTrayOpen = !modeTrayOpen;
+  $modeTray.classList.toggle('open', modeTrayOpen);
+  $btnModes.classList.toggle('active', modeTrayOpen);
+  if (modeTrayOpen) {
+    // Panels share the corner anchor zone — opening the tray closes the
+    // other panels. $btnSound's .active class reflects *playing* state, not
+    // panel state, so it is deliberately left alone here (same as the
+    // outside-click closer).
+    closeOtherPanels('modes');
+    renderModeOptions();
+  }
+});
+
+// Close tray on outside click
+document.addEventListener('click', function(e) {
+  if (modeTrayOpen && !$modeTray.contains(e.target) && e.target !== $btnModes) {
+    closeModeTray();
+  }
+});
+
+// Mode option click
+$modeOptions.addEventListener('click', function(e) {
+  var btn = e.target.closest('.mode-option');
+  if (!btn) return;
+  var index = MODES.indexOf(btn.dataset.mode);
+  if (index < 0) return;
+  switchToMode(index, 'tray');
+  closeModeTray();
+  renderModeOptions();
+});
+
+// --- Style Tray (Task A4) ---
+
+var $btnStyle = document.getElementById('btn-style');
+var $styleTray = document.getElementById('style-tray');
+var $styleMoods = document.getElementById('style-moods');
+var $styleChars = document.getElementById('style-chars');
+var $styleSize = document.getElementById('style-size');
+var $styleTrace = document.getElementById('style-trace');
+var $styleEmpty = document.getElementById('style-empty');
+var styleTrayOpen = false;
+
+function renderStyleTray() {
+  var mode = MODES[state.canvasMode];
+  var V = isRegistryMode(mode) ? window.CALM_MODES.get(mode) : null;
+  var $m = $styleMoods;
+  var $c = $styleChars;
+  var $s = $styleSize;
+  var $t = $styleTrace;
+  var $e = $styleEmpty;
+  $m.textContent = ''; $c.textContent = ''; $s.textContent = ''; $t.textContent = '';
+  if (!V) {
+    // Legacy (non-registry) mode: no smart controls of any kind.
+    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $t.style.display = 'none'; $e.style.display = '';
+    return;
+  }
+  var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
+  if (!V.controls) {
+    // Registry mode with no mood/character controls (etch): hide moods/chars
+    // and the "paints its own colours" message, but still show the size row
+    // (Task A5) — size is orthogonal to whether a mode exposes mood/character.
+    $m.style.display = 'none'; $c.style.display = 'none'; $e.style.display = 'none';
+  } else {
+    $e.style.display = 'none';
+    $m.style.display = 'flex';
+    var lbl = document.createElement('span'); lbl.className = 'ctl-label'; lbl.textContent = 'Mood'; $m.appendChild(lbl);
+    V.controls.moods.forEach(function (mo, i) {
+      var b = document.createElement('button');
+      b.className = 'swatch' + ((saved.mood ? saved.mood === mo.id : i === 0) ? ' on' : '');
+      b.dataset.id = mo.id;
+      (mo.colors || []).slice(0, 4).forEach(function (hex) {
+        var d = document.createElement('span'); d.className = 'dot'; d.style.background = hex; b.appendChild(d);
+      });
+      var nm = document.createElement('span'); nm.className = 'swname'; nm.textContent = mo.name; b.appendChild(nm);
+      $m.appendChild(b);
+    });
+    $c.style.display = 'flex';
+    var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
+    lbl2.textContent = (V.controls.character && V.controls.character.label) || 'Style';
+    $c.appendChild(lbl2);
+    (V.controls.character ? V.controls.character.options : []).forEach(function (o, i) {
+      var b = document.createElement('button');
+      b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
+      b.dataset.id = o.id; b.textContent = o.name;
+      $c.appendChild(b);
+    });
+  }
+
+  // ---- Size row (Task A5): works for ALL registry modes, incl. etch ----
+  if (V.applyControl) {
+    $s.style.display = 'flex';
+    var lbl3 = document.createElement('span'); lbl3.className = 'ctl-label'; lbl3.textContent = 'Size'; $s.appendChild(lbl3);
+    var slider = document.createElement('input');
+    slider.type = 'range'; slider.min = '60'; slider.max = '160'; slider.step = '5';
+    slider.value = String(Math.round(((saved.size || 1) * 100)));
+    slider.id = 'style-size-slider'; slider.setAttribute('aria-label', 'Size');
+    $s.appendChild(slider);
+    var surprise = document.createElement('button');
+    surprise.className = 'chip' + (saved.sizeRandom ? ' on' : '');
+    surprise.id = 'style-size-random'; surprise.textContent = 'Surprise sizes';
+    $s.appendChild(surprise);
+
+    // Slider: apply immediately (continuous, no rebuild — mirrors the A4
+    // lesson that a full renderStyleTray() on every input would be both
+    // wasteful and would fight the outside-click closer mid-drag), persist,
+    // and record a DEBOUNCED signal (500ms, mirrors recordVolumeChange's
+    // context-capture-then-fire pattern) so a slider drag emits one signal,
+    // not one per tick.
+    slider.addEventListener('input', function (e) {
+      var v = parseInt(e.target.value, 10) / 100;
+      if (!canvas.regState) return;
+      var Vnow = window.CALM_MODES.get(mode);
+      if (!Vnow || !Vnow.applyControl) return;
+      try { Vnow.applyControl(canvas.regState, 'size', v); } catch (err) { registryModeError(mode, err); return; }
+      saveModeControl(mode, 'size', v);
+      recordSizeChange(mode, v);
+    });
+
+    // Surprise sizes: toggle button — apply + save + signal (undebounced,
+    // it's a discrete tap not a drag) + in-place class toggle (NO rebuild,
+    // same A4 lesson as the mood/character chips).
+    surprise.addEventListener('click', function () {
+      if (!canvas.regState) return;
+      var Vnow = window.CALM_MODES.get(mode);
+      if (!Vnow || !Vnow.applyControl) return;
+      var next = !surprise.classList.contains('on');
+      try { Vnow.applyControl(canvas.regState, 'sizeRandom', next); } catch (err) { registryModeError(mode, err); return; }
+      saveModeControl(mode, 'sizeRandom', next);
+      recordSignal('mode_control', { mode: mode, control: 'sizeRandom', value: next });
+      surprise.classList.toggle('on', next);
+    });
+  } else {
+    $s.style.display = 'none';
+  }
+
+  // ---- Trace row (Task A6): fades vs stays -- ONLY for the five modes with
+  // a real veil/life-decay concept to toggle (TRACE_MODES). Echo/etch are
+  // exempt (persistence IS their identity, nothing to fade in the first
+  // place); legacy modes have no registry controls at all and never reach
+  // this far (see the `if (!V) { ...; return; }` guard above).
+  if (TRACE_MODES.indexOf(mode) >= 0) {
+    $t.style.display = 'flex';
+    var lbl4 = document.createElement('span'); lbl4.className = 'ctl-label'; lbl4.textContent = 'Trace'; $t.appendChild(lbl4);
+    [{ id: 'fades', name: 'Fades away' }, { id: 'stays', name: 'Stays until Clear' }].forEach(function (o, i) {
+      var b = document.createElement('button');
+      b.className = 'chip' + ((saved.trace ? saved.trace === o.id : i === 0) ? ' on' : '');
+      b.dataset.id = o.id; b.textContent = o.name;
+      $t.appendChild(b);
+    });
+  } else {
+    $t.style.display = 'none';
+  }
+}
+
+// Selection-sync WITHOUT rebuild — the sound panel's updateSoundUI pattern.
+// The control click handler must NOT call renderStyleTray(): its teardown
+// (textContent = '') detaches the clicked button while the click is still
+// bubbling, so the document-level outside-click closer would see a detached
+// e.target, fail the $styleTray.contains() test, and close the tray on
+// every selection. renderStyleTray() (full rebuild) is reserved for tray
+// OPEN and for mode switches while open; this class-toggle-only sync is
+// what selection uses.
+function updateStyleTraySelection() {
+  var mode = MODES[state.canvasMode];
+  var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
+  var swatches = document.querySelectorAll('#style-moods .swatch');
+  Array.prototype.forEach.call(swatches, function (b) {
+    b.classList.toggle('on', b.dataset.id === saved.mood || (!saved.mood && b === swatches[0]));
+  });
+  var chips = document.querySelectorAll('#style-chars .chip');
+  Array.prototype.forEach.call(chips, function (b) {
+    b.classList.toggle('on', b.dataset.id === saved.character || (!saved.character && b === chips[0]));
+  });
+  var traceChips = document.querySelectorAll('#style-trace .chip');
+  Array.prototype.forEach.call(traceChips, function (b) {
+    b.classList.toggle('on', b.dataset.id === saved.trace || (!saved.trace && b === traceChips[0]));
+  });
+}
+
+// Hoisted so closeOtherPanels (defined earlier) and backToProfiles can call it.
+function closeStyleTray() {
+  styleTrayOpen = false;
+  $styleTray.classList.remove('open');
+  $btnStyle.classList.remove('active');
+}
+
+$btnStyle.addEventListener('click', function (e) {
+  e.stopPropagation();
+  styleTrayOpen = !styleTrayOpen;
+  $styleTray.classList.toggle('open', styleTrayOpen);
+  $btnStyle.classList.toggle('active', styleTrayOpen);
+  if (styleTrayOpen) {
+    closeOtherPanels('style');
+    renderStyleTray();
+  }
+});
+
+// Close tray on outside click
+document.addEventListener('click', function (e) {
+  if (styleTrayOpen && !$styleTray.contains(e.target) && e.target !== $btnStyle) {
+    closeStyleTray();
+  }
+});
+
+// Delegated control clicks (mood swatches + character chips)
+function handleStyleControlClick(e, kind) {
+  var btn = e.target.closest('[data-id]');
+  if (!btn) return;
+  var mode = MODES[state.canvasMode];
+  var id = btn.dataset.id;
+  if (!canvas.regState) return;
+  var V = window.CALM_MODES.get(mode);
+  if (!V || !V.applyControl) return;
+  try {
+    V.applyControl(canvas.regState, kind, id);
+  } catch (err) {
+    registryModeError(mode, err);
+    return;
+  }
+  saveModeControl(mode, kind, id);
+  recordSignal('mode_control', { mode: mode, control: kind, value: id });
+  // Class-toggle sync only — a full renderStyleTray() here would detach the
+  // clicked button mid-bubble and trip the outside-click closer (see
+  // updateStyleTraySelection's comment).
+  updateStyleTraySelection();
+}
+
+$styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });
+$styleChars.addEventListener('click', function (e) { handleStyleControlClick(e, 'character'); });
+$styleTrace.addEventListener('click', function (e) { handleStyleControlClick(e, 'trace'); });
+
 // Play/pause
 $btnPlayPause.addEventListener('click', togglePlayPause);
 
@@ -1990,7 +3386,7 @@ document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     if (audio.ctx.state === 'running') audio.ctx.suspend();
   } else {
-    if (audio.playing && audio.ctx.state === 'suspended') audio.ctx.resume();
+    if ((audio.playing || audio.musicPlaying) && audio.ctx.state === 'suspended') audio.ctx.resume();
   }
 });
 
@@ -1998,11 +3394,17 @@ document.addEventListener('visibilitychange', function() {
 
 function saveSoundPrefs() {
   if (!state.activeProfileId) return;
-  saveProfilePrefs(state.activeProfileId, {
-    soundId: audio.currentId,
-    soundPlaying: audio.playing,
-    volume: audio.volume,
-  });
+  // Mutate-and-write-back (not a fresh object): prefs also carries
+  // modeControls (Task A4) and potentially future keys. Overwriting
+  // wholesale here would silently erase them every time a sound/volume
+  // change fires — read current prefs first and only touch the sound keys.
+  var prev = getProfilePrefs(state.activeProfileId) || {};
+  prev.soundId = audio.currentId;
+  prev.soundPlaying = audio.playing;
+  prev.musicId = audio.musicId;
+  prev.musicPlaying = audio.musicPlaying;
+  prev.volume = audio.volume;
+  saveProfilePrefs(state.activeProfileId, prev);
 }
 
 function loadSoundPrefs() {
@@ -2015,23 +3417,40 @@ function loadSoundPrefs() {
   }
   if (prefs.soundId && prefs.soundPlaying) {
     audio.currentId = prefs.soundId;
-    playSound(prefs.soundId);
+    playSound(prefs.soundId, { suppressSignal: true });
   } else {
     audio.currentId = prefs.soundId || null;
+  }
+  if (prefs.musicId && prefs.musicPlaying) {
+    playMusic(prefs.musicId, { suppressSignal: true });
+  } else {
+    audio.musicId = prefs.musicId || null;
   }
   updateSoundUI();
 }
 
 function stopSoundOnExit() {
+  stopSfxScheduler();
   if (audio.currentNodes) {
     try { audio.currentNodes.stop(); } catch(e) {}
     audio.currentNodes = null;
   }
+  audio.musicGen += 1;
+  if (audio.musicNodes) {
+    try { audio.musicNodes.stop(); } catch (e) {}
+    audio.musicNodes = null;
+  }
+  audio.musicPlaying = false;
+  audio.musicId = null;
+  audio.musicBuffer = null;     // release decoded PCM
+  audio.musicBufferId = null;
   audio.playing = false;
   audio.currentId = null;
+  audio.pauseSnapshot = null;
   soundPanelOpen = false;
   $soundPanel.classList.remove('open');
   $btnSound.classList.remove('active');
+  updateDucking();
 }
 
 // --- Ambient Background ---
@@ -2169,6 +3588,17 @@ var $telegramUrl = document.getElementById('telegram-url');
 var $telegramSave = document.getElementById('telegram-save');
 var $telegramTest = document.getElementById('telegram-test');
 var $telegramStatus = document.getElementById('telegram-status');
+var $screenDev = document.getElementById('screen-dev');
+var $devBack = document.getElementById('dev-back');
+var $devProfiles = document.getElementById('dev-profiles');
+var $devControls = document.getElementById('dev-controls');
+var $devEvents = document.getElementById('dev-events');
+var $devExport = document.getElementById('dev-export');
+var $devReset = document.getElementById('dev-reset');
+var $devSaveControls = document.getElementById('dev-save-controls');
+var $devStatus = document.getElementById('dev-status');
+
+setActiveScreenAccessibility($screenProfiles);
 
 var PARENT_STORAGE_KEY = 'calm-station-parent';
 
@@ -2212,6 +3642,10 @@ if ($title) {
 // URL param access
 function checkParentUrlParam() {
   var params = new URLSearchParams(window.location.search);
+  if (params.get('dev') === 'true') {
+    setTimeout(openDevDashboard, 100);
+    return;
+  }
   if (params.get('parent') === 'true') {
     openParentDashboard();
   }
@@ -2222,6 +3656,8 @@ function openParentDashboard() {
   $screenProfiles.classList.remove('active');
   $screenCanvas.classList.remove('active');
   $screenParent.classList.add('active');
+  $screenDev.classList.remove('active');
+  setActiveScreenAccessibility($screenParent);
   $ambientCanvas.classList.add('hidden');
 
   // Load saved webhook URL
@@ -2235,10 +3671,383 @@ function closeParentDashboard() {
   state.screen = 'profiles';
   $screenParent.classList.remove('active');
   $screenProfiles.classList.add('active');
+  setActiveScreenAccessibility($screenProfiles);
   $ambientCanvas.classList.remove('hidden');
 }
 
 $parentBack.addEventListener('click', closeParentDashboard);
+
+// --- Developer Dashboard ---
+
+function openDevDashboard() {
+  state.screen = 'dev';
+  $screenProfiles.classList.remove('active');
+  $screenCanvas.classList.remove('active');
+  $screenParent.classList.remove('active');
+  $screenDev.classList.add('active');
+  setActiveScreenAccessibility($screenDev);
+  $ambientCanvas.classList.add('hidden');
+  renderDevDashboard();
+}
+
+function closeDevDashboard() {
+  state.screen = 'profiles';
+  $screenDev.classList.remove('active');
+  $screenCanvas.classList.remove('active');
+  $screenParent.classList.remove('active');
+  $screenProfiles.classList.add('active');
+  setActiveScreenAccessibility($screenProfiles);
+  $ambientCanvas.classList.remove('hidden');
+}
+
+function renderDevDashboard() {
+  renderDevProfiles();
+  renderDevControls();
+  renderDevEvents();
+}
+
+function escapeHTML(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function devStat(value, label) {
+  return '<div class="dev-stat">' +
+    '<span class="dev-stat-value">' + escapeHTML(value) + '</span>' +
+    '<span class="dev-stat-label">' + escapeHTML(label) + '</span>' +
+  '</div>';
+}
+
+function getSoundLabel(soundId) {
+  if (!soundId) return 'None';
+  if (soundId === 'off') return 'Stopped';
+  var sound = SOUNDS.find(function(item) { return item.id === soundId; });
+  return sound ? sound.name : soundId;
+}
+
+function getValidProfiles() {
+  var profiles = Array.isArray(state.profiles) ? state.profiles : [];
+  return profiles.filter(function(profile) {
+    return profile && typeof profile === 'object';
+  });
+}
+
+function renderDevProfiles() {
+  $devProfiles.textContent = '';
+  var profiles = getValidProfiles();
+
+  if (profiles.length === 0) {
+    $devProfiles.innerHTML = '<div class="parent-no-data">No profiles yet. Create a kid profile to see preference signals.</div>';
+    return;
+  }
+
+  profiles.forEach(function(profile) {
+    var summary = computeSignalSummary(profile.id);
+    var topMode = summary.topMode ? (MODE_LABELS[summary.topMode] || summary.topMode) : 'No mode time yet';
+    var topModeTime = summary.topModeSeconds ? formatDuration(summary.topModeSeconds) : '0s';
+    var soundUse = summary.topSound ? getSoundLabel(summary.topSound) + ' (' + summary.soundCounts[summary.topSound] + ')' : 'No sound use yet';
+    var mt = getMusicTrack(summary.topMusic);
+    var musicName = summary.topMusic === 'off' ? 'Stopped' : (mt ? mt.name : summary.topMusic);
+    var musicUse = summary.topMusic ? musicName + ' (' + summary.musicCounts[summary.topMusic] + ')' : 'No music use yet';
+    var topControl = '—';
+    if (summary.topControl) {
+      var controlParts = summary.topControl.split(':');
+      var controlModeLabel = MODE_LABELS[controlParts[0]] || controlParts[0];
+      topControl = controlModeLabel + ' · ' + controlParts[1];
+    }
+
+    var card = document.createElement('div');
+    card.className = 'dev-profile-card';
+    card.innerHTML = '<h4>' + escapeHTML(profile.name || 'Unnamed profile') + '</h4>' +
+      '<div class="dev-stat-grid">' +
+        devStat(summary.sessions, 'Sessions') +
+        devStat(formatDuration(summary.averageSessionSeconds), 'Avg Session') +
+        devStat(topMode, 'Top Mode') +
+        devStat(topModeTime, 'Top Mode Time') +
+        devStat(soundUse, 'Sound Use') +
+        devStat(musicUse, 'Top Music') +
+        devStat(topControl, 'Top Control') +
+        devStat(summary.promptOpened, 'Prompt Opens') +
+      '</div>';
+    $devProfiles.appendChild(card);
+  });
+}
+
+// Task A11: dev-configurable per-mode defaults. Builds the <option> markup
+// for the mood/character selects of whichever registry mode is currently
+// picked in the modeDefaultsMode dropdown -- reused both at initial card
+// render and on that dropdown's change handler (see renderDevControls below).
+// A mode may expose no controls object (etch) or only some control kinds;
+// the V.controls / .moods / .character guards below degrade any missing kind
+// to just the "Mode default" placeholder.
+function modeDefaultControlOptionsHTML(mode, entry) {
+  var V = window.CALM_MODES ? window.CALM_MODES.get(mode) : null;
+  var moodOptions = '<option value="">Mode default</option>';
+  var charOptions = '<option value="">Mode default</option>';
+  if (V && V.controls) {
+    if (V.controls.moods) {
+      moodOptions += V.controls.moods.map(function(m) {
+        var selected = entry.mood === m.id ? ' selected' : '';
+        return '<option value="' + escapeHTML(m.id) + '"' + selected + '>' + escapeHTML(m.name) + '</option>';
+      }).join('');
+    }
+    if (V.controls.character && V.controls.character.options) {
+      charOptions += V.controls.character.options.map(function(o) {
+        var selected = entry.character === o.id ? ' selected' : '';
+        return '<option value="' + escapeHTML(o.id) + '"' + selected + '>' + escapeHTML(o.name) + '</option>';
+      }).join('');
+    }
+  }
+  return { moodOptions: moodOptions, charOptions: charOptions };
+}
+
+function renderDevControls() {
+  $devControls.textContent = '';
+  var profiles = getValidProfiles();
+
+  if (profiles.length === 0) {
+    $devControls.innerHTML = '<div class="parent-no-data">No profiles available for developer controls.</div>';
+    return;
+  }
+
+  profiles.forEach(function(profile) {
+    var control = getProfileDevControl(profile.id);
+    var promptEnabled = control.promptEnabled === false ? 'false' : 'true';
+    var promptDelaySeconds = Number(control.promptDelaySeconds);
+    var promptDelayValue = Number.isFinite(promptDelaySeconds) && promptDelaySeconds > 0 ? String(promptDelaySeconds) : '';
+    var experimentLabel = control.experimentLabel || '';
+    var options = '<option value="">App default</option>' + MODES.map(function(mode) {
+      var selected = control.defaultMode === mode ? ' selected' : '';
+      return '<option value="' + escapeHTML(mode) + '"' + selected + '>' +
+        escapeHTML(MODE_LABELS[mode] || mode) +
+      '</option>';
+    }).join('');
+    var entrainRates = ['', 'theta', 'alpha', 'gamma40'];
+    var entrainOptions = entrainRates.map(function(rate) {
+      var selected = (control.entrainmentRate || '') === rate ? ' selected' : '';
+      var label = rate === '' ? 'Off'
+        : rate === 'theta' ? 'Theta ~6 Hz'
+        : rate === 'alpha' ? 'Alpha ~10 Hz'
+        : 'Gamma 40 Hz';
+      return '<option value="' + rate + '"' + selected + '>' + label + '</option>';
+    }).join('');
+
+    // Task A11: mode-defaults editor. Dev-grade simple -- one mode edited at
+    // a time via a picker, not a full per-mode grid (see task brief). Only
+    // registry modes carry an applyControl + controls contract, so the mode
+    // picker is scoped to window.CALM_MODES.list (echo/currents/orbits/mandala/
+    // bloom/morph/etch), never the 5 legacy canvas modes. (Not every registry
+    // mode exposes mood/character -- etch has none -- hence the guards above.)
+    var modeDefaults = control.modeDefaults || {};
+    var mdModeList = (window.CALM_MODES && window.CALM_MODES.list) || [];
+    var mdSavedModes = Object.keys(modeDefaults);
+    var mdInitialMode = (mdSavedModes.length && mdModeList.indexOf(mdSavedModes[0]) >= 0) ? mdSavedModes[0] : mdModeList[0];
+    var mdModeOptions = mdModeList.map(function(m) {
+      var selected = m === mdInitialMode ? ' selected' : '';
+      return '<option value="' + escapeHTML(m) + '"' + selected + '>' + escapeHTML(MODE_LABELS[m] || m) + '</option>';
+    }).join('');
+    var mdFields = modeDefaultControlOptionsHTML(mdInitialMode, modeDefaults[mdInitialMode] || {});
+
+    var card = document.createElement('div');
+    card.className = 'dev-control-card';
+    card.dataset.profileId = profile.id;
+    card.innerHTML = '<h4>' + escapeHTML(profile.name || 'Unnamed profile') + '</h4>' +
+      '<label>Default Mode' +
+        '<select data-dev-control="defaultMode">' + options + '</select>' +
+      '</label>' +
+      '<label>Prompt Delay Seconds' +
+        '<input data-dev-control="promptDelaySeconds" inputmode="numeric" type="number" min="1" max="600" step="1" value="' + escapeHTML(promptDelayValue) + '">' +
+      '</label>' +
+      '<label>Prompt Enabled' +
+        '<select data-dev-control="promptEnabled">' +
+          '<option value="true"' + (promptEnabled === 'true' ? ' selected' : '') + '>Enabled</option>' +
+          '<option value="false"' + (promptEnabled === 'false' ? ' selected' : '') + '>Disabled</option>' +
+        '</select>' +
+      '</label>' +
+      '<label>Experiment Label' +
+        '<input data-dev-control="experimentLabel" type="text" maxlength="80" value="' + escapeHTML(experimentLabel) + '">' +
+      '</label>' +
+      '<label>Entrainment (experiment)' +
+        '<select data-dev-control="entrainmentRate">' + entrainOptions + '</select>' +
+      '</label>' +
+      '<label>SFX accents (experiment)' +
+        '<input data-dev-control="sfxEnabled" type="checkbox"' + (control.sfxEnabled ? ' checked' : '') + '>' +
+      '</label>' +
+      '<label>Visual reactivity' +
+        '<input data-dev-control="visualReactivity" type="checkbox"' + (control.visualReactivity === false ? '' : ' checked') + '>' +
+      '</label>' +
+      '<label>Mode Defaults — Mode' +
+        '<select data-dev-control="modeDefaultsMode">' + mdModeOptions + '</select>' +
+      '</label>' +
+      '<label>Mode Defaults — Mood' +
+        '<select data-dev-control="modeDefaultMood">' + mdFields.moodOptions + '</select>' +
+      '</label>' +
+      '<label>Mode Defaults — Character' +
+        '<select data-dev-control="modeDefaultCharacter">' + mdFields.charOptions + '</select>' +
+      '</label>';
+    $devControls.appendChild(card);
+
+    // Swapping the mode picker must refresh the mood/character options to
+    // match the newly picked mode's own registry controls (and preload that
+    // mode's already-saved default, if any) -- mirrors no existing precedent
+    // 1:1 (entrainmentRate etc. don't cascade), but follows the same
+    // in-place-update-no-full-rebuild discipline renderStyleTray's sibling
+    // handlers use, applied here to a select instead of chip classes.
+    var mdModeSelect = card.querySelector('[data-dev-control="modeDefaultsMode"]');
+    var mdMoodSelect = card.querySelector('[data-dev-control="modeDefaultMood"]');
+    var mdCharSelect = card.querySelector('[data-dev-control="modeDefaultCharacter"]');
+    if (mdModeSelect) {
+      mdModeSelect.addEventListener('change', function() {
+        var newFields = modeDefaultControlOptionsHTML(mdModeSelect.value, modeDefaults[mdModeSelect.value] || {});
+        mdMoodSelect.innerHTML = newFields.moodOptions;
+        mdCharSelect.innerHTML = newFields.charOptions;
+      });
+    }
+  });
+}
+
+function renderDevEvents() {
+  $devEvents.textContent = '';
+  var profiles = getValidProfiles();
+  var events = [];
+
+  profiles.forEach(function(profile) {
+    readSignals(profile.id).forEach(function(event) {
+      if (!event || typeof event !== 'object') return;
+      events.push({ profile: profile, event: event });
+    });
+  });
+
+  events.sort(function(a, b) {
+    return new Date(b.event.ts).getTime() - new Date(a.event.ts).getTime();
+  });
+
+  if (events.length === 0) {
+    $devEvents.innerHTML = '<div class="parent-no-data">No preference signal events recorded yet.</div>';
+    return;
+  }
+
+  events.slice(0, 50).forEach(function(entry) {
+    var payloadText = '';
+    try {
+      payloadText = JSON.stringify(entry.event.payload || {});
+    } catch (e) {
+      payloadText = '{}';
+    }
+
+    var row = document.createElement('div');
+    row.className = 'dev-event-row';
+    row.innerHTML = '<span>' + escapeHTML(formatSessionDate(entry.event.ts)) + '</span>' +
+      '<span class="dev-event-type">' + escapeHTML(entry.event.type || 'unknown') + '</span>' +
+      '<span>' + escapeHTML(entry.profile.name || 'Unnamed profile') + ': ' + escapeHTML(payloadText) + '</span>';
+    $devEvents.appendChild(row);
+  });
+}
+
+function exportSignalData() {
+  var profiles = Array.isArray(state.profiles) ? state.profiles : [];
+  return {
+    exportedAt: new Date().toISOString(),
+    profiles: profiles.filter(Boolean).map(function(profile) {
+      return {
+        id: profile.id,
+        name: profile.name,
+        theme: profile.theme,
+        summary: computeSignalSummary(profile.id),
+        events: readSignals(profile.id),
+      };
+    }),
+  };
+}
+
+function saveControlsFromUI() {
+  var controls = {};
+  Array.prototype.forEach.call($devControls.querySelectorAll('.dev-control-card'), function(card) {
+    var profileId = card.dataset.profileId;
+    if (!profileId) return;
+    var defaultMode = card.querySelector('[data-dev-control="defaultMode"]').value;
+    var delayInput = card.querySelector('[data-dev-control="promptDelaySeconds"]').value;
+    var promptEnabled = card.querySelector('[data-dev-control="promptEnabled"]').value;
+    var experimentLabel = card.querySelector('[data-dev-control="experimentLabel"]').value.trim();
+    var entrainmentRate = card.querySelector('[data-dev-control="entrainmentRate"]').value;
+    var sfxEnabled = card.querySelector('[data-dev-control="sfxEnabled"]').checked;
+    var visualReactivity = card.querySelector('[data-dev-control="visualReactivity"]').checked;
+    var mdModeSel = card.querySelector('[data-dev-control="modeDefaultsMode"]');
+    var mdMoodSel = card.querySelector('[data-dev-control="modeDefaultMood"]');
+    var mdCharSel = card.querySelector('[data-dev-control="modeDefaultCharacter"]');
+    var profileControl = {};
+    var delaySeconds = Number(delayInput);
+
+    if (MODES.indexOf(defaultMode) >= 0) profileControl.defaultMode = defaultMode;
+    if (Number.isFinite(delaySeconds) && delaySeconds > 0 && delaySeconds <= 600) {
+      profileControl.promptDelaySeconds = Math.round(delaySeconds);
+    }
+    profileControl.promptEnabled = promptEnabled !== 'false';
+    if (experimentLabel) profileControl.experimentLabel = experimentLabel;
+    if (ENTRAINMENT_RATES[entrainmentRate]) profileControl.entrainmentRate = entrainmentRate;
+    if (sfxEnabled) profileControl.sfxEnabled = true;
+    // Inverted vs sfxEnabled: default ON, so only store the key when the kid
+    // card is unchecked (absent = on), keeping the blob minimal.
+    if (!visualReactivity) profileControl.visualReactivity = false;
+    // Task A11: MERGE into modeDefaults, never clobber. The UI only edits
+    // ONE mode at a time (whichever the modeDefaultsMode picker is on), so
+    // start from the profile's EXISTING modeDefaults (read fresh from
+    // storage, unaffected by this in-progress rebuild of `controls`) and
+    // only overwrite the currently-picked mode's entry -- every other mode's
+    // saved defaults, and every sibling profile's whole dev-control blob
+    // (rebuilt independently per card in this same loop), survive untouched.
+    var existingModeDefaults = getProfileDevControl(profileId).modeDefaults || {};
+    var modeDefaults = Object.assign({}, existingModeDefaults);
+    if (mdModeSel && mdModeSel.value) {
+      var mdMode = mdModeSel.value;
+      var mdEntry = Object.assign({}, modeDefaults[mdMode]);
+      var mdMood = mdMoodSel ? mdMoodSel.value : '';
+      var mdChar = mdCharSel ? mdCharSel.value : '';
+      if (mdMood) mdEntry.mood = mdMood; else delete mdEntry.mood;
+      if (mdChar) mdEntry.character = mdChar; else delete mdEntry.character;
+      if (Object.keys(mdEntry).length) modeDefaults[mdMode] = mdEntry;
+      else delete modeDefaults[mdMode];
+    }
+    if (Object.keys(modeDefaults).length) profileControl.modeDefaults = modeDefaults;
+    controls[profileId] = profileControl;
+  });
+  saveDevControls(controls);
+  return controls;
+}
+
+if (typeof window !== 'undefined') {
+  window.CalmStationDev = {
+    exportSignals: exportSignalData,
+    recordTestEvent: function(profileId, type, payload) {
+      recordSignalForProfile(profileId, type, payload);
+    },
+    resetSignals: function() {
+      var profiles = Array.isArray(state.profiles) ? state.profiles : [];
+      profiles.forEach(function(profile) {
+        if (profile) localStorage.removeItem(getSignalKey(profile.id));
+      });
+    },
+  };
+}
+
+$devBack.addEventListener('click', closeDevDashboard);
+$devSaveControls.addEventListener('click', function() {
+  saveControlsFromUI();
+  renderDevDashboard();
+  $devStatus.textContent = 'Developer controls saved.';
+});
+$devExport.addEventListener('click', function() {
+  $devStatus.textContent = JSON.stringify(exportSignalData(), null, 2);
+});
+$devReset.addEventListener('click', function() {
+  window.CalmStationDev.resetSignals();
+  renderDevDashboard();
+  $devStatus.textContent = 'Preference signals reset.';
+});
 
 function getProfileSessions(profileId) {
   try {

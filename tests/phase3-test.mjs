@@ -70,14 +70,19 @@ function log(check, pass, detail) {
   });
   log('Sound panel opens on click', panelOpen);
 
-  // CHECK 4: Sound options rendered (Rain, Drone, Ocean, White Noise after phase 4)
-  const soundOpts = await page.$$('.sound-option');
+  // CHECK 4: Sound options rendered (scoped to #sound-options — the soundscape
+  // work added music options that also carry .sound-option under #music-options)
+  const soundOpts = await page.$$('#sound-options .sound-option');
   log('Four sound options', soundOpts.length === 4, `found ${soundOpts.length}`);
 
   const optTexts = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll('.sound-option')).map(b => b.textContent.trim());
+    return Array.from(document.querySelectorAll('#sound-options .sound-option')).map(b => b.textContent.trim());
   });
-  log('Options are Rain and Ambient Drone', optTexts.includes('Rain') && optTexts.includes('Ambient Drone'), optTexts.join(', '));
+  log(
+    'Options include all procedural sounds',
+    ['Rain', 'Ambient Drone', 'Ocean Waves', 'White Noise'].every(label => optTexts.includes(label)),
+    optTexts.join(', ')
+  );
 
   // CHECK 5: Sound OFF by default
   const playingDefault = await page.evaluate(() => audio.playing);

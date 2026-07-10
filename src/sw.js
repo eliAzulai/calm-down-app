@@ -1,4 +1,8 @@
-var CACHE_NAME = 'calm-station-v3';
+// Bump CACHE_NAME whenever ANY file in ASSETS changes — assets are served
+// cache-first, so an unbumped version never reaches already-installed clients.
+// Install is atomic (cache.addAll): on a flaky first visit it can fail whole;
+// accepted for this deployment (home-wifi iPad) — retry happens next visit.
+var CACHE_NAME = 'calm-station-v4';
 var ASSETS = [
   './',
   './index.html',
@@ -10,6 +14,18 @@ var ASSETS = [
   './icon-maskable-512.png',
   './icon-192.svg',
   './icon-512.svg',
+  './audio/music/bowls.mp3',
+  './audio/music/tides.mp3',
+  './audio/music/forest-rain.mp3',
+  './audio/sfx/chime.mp3',
+  './modes/registry.js',
+  './modes/currents.js',
+  './modes/orbits.js',
+  './modes/mandala.js',
+  './modes/bloom.js',
+  './modes/morph.js',
+  './modes/echo.js',
+  './modes/etch.js',
 ];
 
 // Install: cache all core assets

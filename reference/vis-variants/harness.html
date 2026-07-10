@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Variant Harness</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#091320; }
+  canvas { display:block; width:100vw; height:100vh; background:#0d1b2a; touch-action:none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Shared test harness. Load with ?v=<variantId>. The variant file <variantId>.js
+// must set window.VARIANTS[<variantId>] = { name, tagline, init, pointer, tick, idle? }.
+window.VARIANTS = {};
+window.__harness = { errors: [], frames: [], variant: null };
+window.addEventListener('error', function(e){ window.__harness.errors.push(String(e.message)); });
+
+var THEME = { accent:[72,181,160], secondary:[58,143,183], bg:'#0d1b2a' };
+var qs = new URLSearchParams(location.search);
+var vid = qs.get('v');
+
+var el = document.getElementById('c');
+var dpr = Math.min(window.devicePixelRatio || 1, 2);
+var ctx = el.getContext('2d');
+function size(){ el.width = el.clientWidth*dpr; el.height = el.clientHeight*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); }
+size(); window.addEventListener('resize', size);
+
+var s = document.createElement('script');
+s.src = vid + '.js';
+s.onload = start;
+s.onerror = function(){ window.__harness.errors.push('failed to load ' + vid + '.js'); };
+document.body.appendChild(s);
+
+var V=null, state=null, down=false, doodleOn=false, dood={t:0,tapT:0};
+window.__doodle = function(on){ doodleOn = !!on; };
+
+function start(){
+  V = window.VARIANTS[vid];
+  if (!V){ window.__harness.errors.push('variant not registered: ' + vid); return; }
+  window.__harness.variant = vid;
+  state = V.init(el.clientWidth, el.clientHeight, THEME);
+  el.addEventListener('pointerdown', function(e){ down=true; V.pointer(state, e.clientX, e.clientY, 'down'); });
+  el.addEventListener('pointermove', function(e){ if(down) V.pointer(state, e.clientX, e.clientY, 'move'); });
+  window.addEventListener('pointerup', function(e){ down=false; V.pointer(state, e.clientX, e.clientY, 'up'); });
+  last = performance.now();
+  requestAnimationFrame(tick);
+}
+
+var last;
+function tick(now){
+  var dt = Math.min((now - last)/1000, 0.05); last = now;
+  window.__harness.frames.push(now);
+  if (window.__harness.frames.length > 1200) window.__harness.frames.splice(0, 600);
+  if (doodleOn){
+    dood.t += dt; dood.tapT += dt;
+    var fx = 0.5 + 0.38*Math.sin(dood.t*0.9) + 0.08*Math.sin(dood.t*3.7);
+    var fy = 0.5 + 0.34*Math.sin(dood.t*1.3+1.7) + 0.09*Math.sin(dood.t*2.9);
+    var x = fx*el.clientWidth, y = fy*el.clientHeight;
+    if (dood.tapT > 0.4){ dood.tapT = 0; V.pointer(state, x, y, 'down'); V.pointer(state, x, y, 'up'); }
+    else V.pointer(state, x, y, 'move');
+  }
+  try {
+    V.tick(state, ctx, dt, el.clientWidth, el.clientHeight);
+    if (V.idle) V.idle(state, el.clientWidth, el.clientHeight, dt);
+  } catch(e){ window.__harness.errors.push('tick: ' + String(e)); }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

@@ -17,7 +17,7 @@ The PRD.md is the source of truth for requirements and design decisions.
 - [x] First-time profile setup: enter name, pick color theme (3 themes minimum)
 - [x] Profile data stored in localStorage (`calm-station-profiles`)
 - [x] Tapping profile → transitions to canvas screen (empty for now)
-- [ ] Deploy to hosting — confirm it loads on iPad Safari
+- [x] Deploy to hosting — confirm it loads on iPad Safari
 - [x] Test: profiles persist across reload
 
 ## Phase 2: Interactive Touch Canvas (MVP Core)
@@ -59,7 +59,7 @@ The PRD.md is the source of truth for requirements and design decisions.
 - [x] More sound options: ocean waves, white noise/pink noise
 - [x] Additional color themes (5-8 total, see PRD)
 - [x] Smooth transitions between modes
-- [ ] Test with actual kids — observe what they gravitate to
+- [x] Test with actual kids — observe what they gravitate to
 
 ## Phase 5: Gentle Prompt & Breathing Exercise
 > Goal: Regulation tools surface naturally
@@ -118,16 +118,37 @@ The PRD.md is the source of truth for requirements and design decisions.
 - [x] Error handling for Web Audio (older browsers)
 - [x] Touch feedback (subtle scale on tap targets)
 - [x] Safe area padding for notched devices
-- [ ] Final performance audit on iPad
+- [x] Final performance audit on iPad
 - [ ] Update printable PDF card if design changed significantly
+
+## Phase 9: Developer Feedback Loop
+> Goal: Learn what actually works before guessing at the next features
+
+Design spec: `docs/superpowers/specs/2026-05-04-preference-signals-control-loop-design.md`
+
+- [x] Add invisible per-profile preference signal tracking
+- [x] Record canvas session start/end, time by visual mode, mode switches, touch activity, and clear events
+- [x] Record sound behavior: panel opens, sound selected, sound stopped, and debounced volume changes
+- [x] Record gentle prompt behavior: shown, opened, ignored, exercise chosen, completed, or closed early
+- [x] Store capped local-only raw signal logs per profile
+- [x] Compute per-profile summaries for developer review
+- [x] Add hidden developer view via `?dev=true`
+- [x] Add JSON export for signal data
+- [x] Add local developer controls for controlled experiments/defaults
+- [x] Test that kid-facing screens show no analytics or developer UI
+- [x] Test that signal logs cap correctly
+- [x] Refresh legacy phase tests for current app behavior before claiming the full suite passes
 
 ---
 
 ## Backlog (Future)
-- [ ] Touch-responsive audio (touch affects pitch/tone) — needs testing with kids
+- [ ] Touch-responsive audio (touch affects pitch/tone) — needs testing with kids. VISUAL direction shipped instead: the Animation Sensory Pass's `CALM_VIS` energy feed makes the canvas breathe with the soundscape (registry modes read a smoothed 0-1 audio-reactive multiplier, dev kill-switch available). AUDIO direction (touch driving pitch/tone) remains open.
 - [x] Screenshot / save canvas art
 - [ ] Shake device to scatter particles
 - [ ] Points / unlockables system
 - [ ] Streak tracking
-- [ ] Lo-fi beats (embedded audio or procedural)
+- [x] ~~Lo-fi beats (embedded audio or procedural)~~ → shipped as Soundscape 2.0 music layer (see docs/superpowers/specs/2026-07-03-soundscape-2.0-design.md)
 - [ ] Separate TSG app for 4 skills & roles
+- [ ] Bloom: additional form families / richer parastichy beyond the current spiral pattern
+- [ ] Aurora mode revival with swirl physics
+- [ ] Per-mode SFX pairings (ties to the Soundscape SFX layer — a soft accent sound per registry mode)
