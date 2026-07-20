@@ -4049,7 +4049,21 @@ $devSaveControls.addEventListener('click', function() {
   $devStatus.textContent = 'Developer controls saved.';
 });
 $devExport.addEventListener('click', function() {
-  $devStatus.textContent = JSON.stringify(exportSignalData(), null, 2);
+  var json = JSON.stringify(exportSignalData(), null, 2);
+  $devStatus.textContent = json;
+  // Real file download so the data can leave the device when a grown-up
+  // explicitly exports it: on iPad this opens the share sheet (AirDrop /
+  // Files). The on-screen dump above stays as the fallback.
+  try {
+    var blob = new Blob([json], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'calm-station-signals-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(a.href); }, 5000);
+  } catch (e) { /* on-screen dump remains available */ }
 });
 $devReset.addEventListener('click', function() {
   window.CalmStationDev.resetSignals();

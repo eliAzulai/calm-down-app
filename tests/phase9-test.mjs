@@ -146,6 +146,17 @@ async function ensureProfile(page) {
   log('Export helper returns profiles', Array.isArray(exported.profiles) && exported.profiles.length >= 1);
   log('Export helper includes events', exportedSignalProfile?.events.length >= 1, `${exportedSignalProfile?.events.length || 0} events`);
 
+  // Export button must produce a real file download (iPad share-sheet path),
+  // not just the on-screen JSON dump.
+  const downloadPromise = page.waitForEvent('download', { timeout: 4000 }).catch(() => null);
+  await page.click('#dev-export');
+  const download = await downloadPromise;
+  const dlName = download ? download.suggestedFilename() : '';
+  log('Export button downloads a dated JSON file',
+    /^calm-station-signals-\d{4}-\d{2}-\d{2}\.json$/.test(dlName),
+    dlName || 'no download fired');
+  await page.waitForTimeout(200);
+
   const capResult = await page.evaluate(({ id }) => {
     const profile = JSON.parse(localStorage.getItem('calm-station-profiles') || '[]')
       .find(storedProfile => storedProfile?.id === id);
