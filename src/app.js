@@ -2879,7 +2879,10 @@ function updateVisEnergy(dt) {
 
 var SFX_SOUNDS = [
   { id: 'chime', file: 'audio/sfx/chime.mp3' },
-  // Extend as ElevenLabs assets land (water drop, soft bird, bowl swell).
+  { id: 'drop', file: 'audio/sfx/drop.mp3' },
+  { id: 'bird', file: 'audio/sfx/bird.mp3' },
+  { id: 'bowl', file: 'audio/sfx/bowl.mp3' },
+  { id: 'breeze', file: 'audio/sfx/breeze.mp3' },
 ];
 var sfx = { timer: null, buffers: {}, active: false };
 

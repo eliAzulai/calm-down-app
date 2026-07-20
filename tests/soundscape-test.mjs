@@ -273,11 +273,12 @@ await check('Dev screen has entrainment + SFX controls', async () => {
 await check('SW precaches audio assets', async () => {
   const res = await page.request.get(`${BASE}/sw.js`);
   const body = await res.text();
-  const wanted = ['audio/music/bowls.mp3', 'audio/music/tides.mp3', 'audio/music/forest-rain.mp3', 'audio/sfx/chime.mp3'];
+  const wanted = ['audio/music/bowls.mp3', 'audio/music/tides.mp3', 'audio/music/forest-rain.mp3',
+    'audio/sfx/chime.mp3', 'audio/sfx/drop.mp3', 'audio/sfx/bird.mp3', 'audio/sfx/bowl.mp3', 'audio/sfx/breeze.mp3'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  if (!body.includes('calm-station-v4')) throw new Error('cache name not bumped');
-  return 'v4 + 4 audio assets';
+  if (!body.includes('calm-station-v5')) throw new Error('cache name not bumped');
+  return 'v5 + 8 audio assets';
 });
 
 await check('SW cache actually contains audio (real Cache Storage)', async () => {
