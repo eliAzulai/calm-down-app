@@ -406,6 +406,20 @@
     sctx.restore();
   }
 
+  // Create the offscreen stamp archive at DEVICE resolution (w*dpr × h*dpr)
+  // and pre-scale its context by dpr so all stamp drawing stays in CSS-pixel
+  // coordinates (same space as pointer coords / the live object). Without this
+  // the buffer is only CSS-resolution and gets bilinearly upscaled when blitted
+  // onto the 2× main canvas -- the "undetailed echoes on iPad" regression.
+  function makeStampCanvas(w, h, dpr) {
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    var cx = c.getContext('2d');
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return c;
+  }
+
   function maybeStamp(state, o, dt, moved) {
     state.stampTimer += dt;
     var distSince = Math.hypot(o.x - o.lastStampX, o.y - o.lastStampY);
@@ -462,13 +476,15 @@
     },
 
     init: function (w, h, theme) {
-      var stampCanvas = document.createElement('canvas');
-      stampCanvas.width = Math.max(1, Math.round(w));
-      stampCanvas.height = Math.max(1, Math.round(h));
-      var stampCtx = stampCanvas.getContext('2d');
+      // theme carries dpr (see app.js ensureRegState); fall back to live DPR
+      // then 1 so the mode still works if invoked without a config.
+      var dpr = (theme && theme.dpr) || (typeof window !== 'undefined' && Math.min(window.devicePixelRatio || 1, 2)) || 1;
+      var stampCanvas = makeStampCanvas(w, h, dpr);
+      var stampCtx = stampCanvas.getContext('2d'); // same instance, transform persists
 
       var st = {
         w: w, h: h,
+        dpr: dpr,
         theme: theme,
         stampCanvas: stampCanvas,
         stampCtx: stampCtx,
@@ -509,12 +525,11 @@
     },
 
     tick: function (state, ctx, dt, w, h) {
-      // resize stamp canvas (fresh, content not preserved -- acceptable per spec)
+      // resize stamp canvas (fresh, content not preserved -- acceptable per spec).
+      // Re-allocated at device resolution via state.dpr, same as init().
       if (state.w !== w || state.h !== h) {
         state.w = w; state.h = h;
-        var nc = document.createElement('canvas');
-        nc.width = Math.max(1, Math.round(w));
-        nc.height = Math.max(1, Math.round(h));
+        var nc = makeStampCanvas(w, h, state.dpr);
         state.stampCanvas = nc;
         state.stampCtx = nc.getContext('2d');
       }

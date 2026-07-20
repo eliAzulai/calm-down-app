@@ -835,6 +835,11 @@ function ensureRegState(mode) {
   var V = window.CALM_MODES.get(mode);
   canvas.regState = V.init(canvas.width, canvas.height, {
     accent: canvas.accentRGB, secondary: canvas.secondaryRGB, bg: '#0d1b2a',
+    // Device-pixel ratio (capped at 2, matches resizeCanvas). init() gets w/h
+    // in CSS pixels; modes that cache to an OFFSCREEN buffer (echo's stamp
+    // archive) must allocate it at w*dpr × h*dpr and pre-scale, or the buffer
+    // renders at half resolution and blits soft/blurry onto the 2× main canvas.
+    dpr: canvas.dpr,
   });
   canvas.regId = mode;
   applySavedModeControls(mode);
