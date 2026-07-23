@@ -580,6 +580,11 @@ html, body {
   transition: background var(--transition-fast), opacity var(--transition-normal), transform var(--transition-normal);
 }
 
+.quick-sidebar button:active {
+  transform: scale(0.93);
+  background: rgba(255, 255, 255, 0.06);
+}
+
 #sidebar-tab { opacity: 0.45; } /* collapsed tab stays quiet */
 
 .quick-sidebar.open #sidebar-tab {

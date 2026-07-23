@@ -3412,6 +3412,7 @@ $sidebarTab.addEventListener('click', function (e) {
   $quickSidebar.classList.toggle('open', quickSidebarOpen);
   $sidebarTab.setAttribute('aria-expanded', String(quickSidebarOpen));
   if (quickSidebarOpen) closeOtherPanels('sidebar');
+  if (quickSidebarOpen) recordSignal('sidebar_open', {}); // mirrors sound_panel_open — fires only on open
 });
 
 // Close sidebar on outside click

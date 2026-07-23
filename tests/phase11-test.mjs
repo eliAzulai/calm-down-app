@@ -81,7 +81,9 @@ await check('Sidebar opens, is exclusive, and 48px targets', async () => {
     const r = document.getElementById(id).getBoundingClientRect(); return Math.min(r.width, r.height);
   }));
   if (sizes.some(s => s < 48)) throw new Error('touch target <48px: ' + sizes.join(','));
-  return 'open+exclusive+48px';
+  const opened = await page.evaluate(() => readSignals(state.activeProfileId).some(e => e.type === 'sidebar_open'));
+  if (!opened) throw new Error('sidebar_open signal missing after tab open');
+  return 'open+exclusive+48px+sidebar_open signal';
 });
 
 await check('Sidebar erase clears, prev/next change mode and signal', async () => {
