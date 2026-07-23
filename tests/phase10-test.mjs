@@ -302,7 +302,7 @@ await check('Trace=stays persists mandala sparks; fades drains them', async () =
   return `stays=${litStays} fades=${litFades}`;
 });
 
-await check('Trace chip renders for the five, hidden for echo/etch, persists', async () => {
+await check('Trace chip renders for trace modes, hidden for echo/etch, persists', async () => {
   await page.click('#btn-style'); await page.waitForSelector('#style-tray.open');
   let traceChips = await page.locator('#style-trace .chip').count();
   if (traceChips !== 2) throw new Error('mandala trace chips=' + traceChips);

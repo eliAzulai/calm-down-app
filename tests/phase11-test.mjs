@@ -204,12 +204,18 @@ await check('Invert: stroke carves darkness; stays persists; fades heals', async
   await page.waitForTimeout(5000);
   const stillCarved = await sampleCarve();
   if (stillCarved < 0.4) throw new Error('stays carve healed: ' + stillCarved);
-  // fades: same carve heals substantially within ~18s
+  // fades: pacing locked both ways (Spec 4 B4 review) — heal must take ~15s,
+  // not seconds. Sample mid-wait (~4s in) and assert the carve is STILL
+  // substantially present (catches a too-fast heal), then sample at the end
+  // of the full ~18s wait and assert it has healed (catches a too-slow one).
   await page.evaluate(() => window.CALM_MODES.get('invert').applyControl(canvas.regState, 'trace', 'fades'));
-  await page.waitForTimeout(18000);
+  await page.waitForTimeout(4000);
+  const midHeal = await sampleCarve();
+  if (midHeal < 0.5) throw new Error('fades healed too fast (4s in): ' + stillCarved + ' -> ' + midHeal);
+  await page.waitForTimeout(14000); // total ~18s since fades was set
   const healed = await sampleCarve();
-  if (healed > stillCarved * 0.5) throw new Error('fades did not heal: ' + stillCarved + ' -> ' + healed);
-  return `carve ${carvedStays.toFixed(2)} stays ${stillCarved.toFixed(2)} healed ${healed.toFixed(2)}`;
+  if (healed > 0.3) throw new Error('fades did not heal: ' + stillCarved + ' -> ' + healed);
+  return `carve ${carvedStays.toFixed(2)} stays ${stillCarved.toFixed(2)} mid ${midHeal.toFixed(2)} healed ${healed.toFixed(2)}`;
 });
 
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);

@@ -3212,16 +3212,23 @@ function renderStyleTray() {
       var nm = document.createElement('span'); nm.className = 'swname'; nm.textContent = mo.name; b.appendChild(nm);
       $m.appendChild(b);
     });
-    $c.style.display = 'flex';
-    var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
-    lbl2.textContent = (V.controls.character && V.controls.character.label) || 'Style';
-    $c.appendChild(lbl2);
-    (V.controls.character ? V.controls.character.options : []).forEach(function (o, i) {
-      var b = document.createElement('button');
-      b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
-      b.dataset.id = o.id; b.textContent = o.name;
-      $c.appendChild(b);
-    });
+    // AUTHORIZED REFRESH (Spec 4 B4 review): a registry mode can have
+    // controls.moods without controls.character (invert is the first). Hide
+    // the row instead of rendering an empty labeled "Style" row for kids.
+    if (V.controls.character && V.controls.character.options) {
+      $c.style.display = 'flex';
+      var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
+      lbl2.textContent = V.controls.character.label || 'Style';
+      $c.appendChild(lbl2);
+      V.controls.character.options.forEach(function (o, i) {
+        var b = document.createElement('button');
+        b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
+        b.dataset.id = o.id; b.textContent = o.name;
+        $c.appendChild(b);
+      });
+    } else {
+      $c.style.display = 'none';
+    }
   }
 
   // ---- Size row (Task A5): works for ALL registry modes, incl. etch ----

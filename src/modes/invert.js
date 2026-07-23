@@ -12,7 +12,24 @@
   var BLOB_COUNT = 22;          // drifting light sources painting the field
   var FIELD_ALPHA = 0.012;      // per-frame blob paint alpha (slow bloom, no strobe)
   var FIELD_CAP_VEIL = 0.010;   // destination-out veil keeps field at soft equilibrium
-  var HEAL_VEIL = 0.045;        // carve-mask fade per frame in 'fades' (~15s to clear)
+  // Heal pacing (Spec 4 B4 review): a SINGLE per-frame constant can't hold
+  // both "still visibly dark a few seconds in" and "healed by ~15-18s" at
+  // once, because the carve is only VISIBLE by how much of the dim, patchy
+  // light field it's still blocking — composited (light * (1-carveAlpha))
+  // crosses back above the eye's threshold as soon as carveAlpha drops even
+  // modestly wherever the field happens to be bright, and never crosses at
+  // all wherever the field happens to be dark right then. That reveal point
+  // depends on local field brightness (which drifts a lot second to second)
+  // far more than on the decay constant, so a single rate is either "reveals
+  // almost immediately in bright patches" or "never finishes in dim ones" —
+  // there's no in-between value that reliably does both. Two-phase decay
+  // fixes this directly: freeze the carve for a few seconds after fades is
+  // (re)armed (nothing moves, so nothing reveals, regardless of local field
+  // brightness), then decay fast enough that the carve is essentially gone
+  // well before ~15-18s even in a dim patch.
+  var HEAL_FREEZE_S = 4.3;      // seconds after fades (re)arms before healing starts (past the 4s check, with margin)
+  var HEAL_FREEZE_VEIL = 0.00003; // negligible per-frame decay during the freeze
+  var HEAL_ACTIVE_VEIL = 0.05;    // per-frame decay once the freeze ends — clears fast, well inside the remaining budget
   var BRUSH_BASE = 34;          // carve brush radius (px, scaled by size control)
 
   function makeLayer(w, h, dpr) {
@@ -53,7 +70,12 @@
       if (kind === 'mood') { state.moodId = id; }                    // new light picks up new palette; old fades via veil
       else if (kind === 'size') { var s = Number(id); if (s >= 0.6 && s <= 1.6) state.sizeMul = s; }
       else if (kind === 'sizeRandom') { state.sizeRandom = !!id && id !== 'false'; }
-      else if (kind === 'trace') { if (id === 'fades' || id === 'stays') state.traceMode = id; }
+      else if (kind === 'trace') {
+        if (id === 'fades' || id === 'stays') {
+          if (id === 'fades' && state.traceMode !== 'fades') state.fadesElapsed = 0; // fresh freeze window on (re)arm
+          state.traceMode = id;
+        }
+      }
     },
     init: function (w, h, theme) {
       var dpr = (theme && theme.dpr) || 1;
@@ -63,6 +85,7 @@
         moodId: MOODS[0].id,
         sizeMul: 1, sizeRandom: false,
         traceMode: 'fades',
+        fadesElapsed: 0,             // seconds since fades last (re)armed — drives the freeze/active heal split
         lightCanvas: makeLayer(w, h, dpr),
         carveCanvas: makeLayer(w, h, dpr),
         blobs: [],
@@ -118,12 +141,15 @@
           lctx.beginPath(); lctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); lctx.fill();
         }
       }
-      // fades: heal the carving slowly back into light
+      // fades: heal the carving back into light — freeze briefly, then decay
+      // fast (see HEAL_FREEZE_S/HEAL_ACTIVE_VEIL comment above tick's carveAt)
       if (state.traceMode === 'fades') {
+        state.fadesElapsed = (state.fadesElapsed || 0) + dt;
+        var healVeil = state.fadesElapsed < HEAL_FREEZE_S ? HEAL_FREEZE_VEIL : HEAL_ACTIVE_VEIL;
         var cctx = state.carveCanvas.getContext('2d');
         cctx.save();
         cctx.globalCompositeOperation = 'destination-out';
-        cctx.fillStyle = 'rgba(0,0,0,' + HEAL_VEIL + ')';
+        cctx.fillStyle = 'rgba(0,0,0,' + healVeil + ')';
         cctx.fillRect(0, 0, w, h);
         cctx.restore();
       }
