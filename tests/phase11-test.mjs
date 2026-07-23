@@ -67,6 +67,52 @@ await check('Calm start: idle life resumes after first touch', async () => {
   return 'morph idle life resumed post-touch (' + lit + ')';
 });
 
+await check('Sidebar opens, is exclusive, and 48px targets', async () => {
+  await page.click('#sidebar-tab');
+  await page.waitForSelector('#quick-sidebar.open');
+  await page.click('#btn-sound'); // opening another panel must close the sidebar
+  await page.waitForTimeout(300);
+  const sidebarOpen = await page.evaluate(() => document.getElementById('quick-sidebar').classList.contains('open'));
+  if (sidebarOpen) throw new Error('sidebar not exclusive with sound panel');
+  await page.click('#btn-sound'); // close sound panel again
+  await page.click('#sidebar-tab');
+  await page.waitForSelector('#quick-sidebar.open');
+  const sizes = await page.evaluate(() => ['sidebar-tab','sidebar-erase','sidebar-prev','sidebar-next'].map(id => {
+    const r = document.getElementById(id).getBoundingClientRect(); return Math.min(r.width, r.height);
+  }));
+  if (sizes.some(s => s < 48)) throw new Error('touch target <48px: ' + sizes.join(','));
+  return 'open+exclusive+48px';
+});
+
+await check('Sidebar erase clears, prev/next change mode and signal', async () => {
+  const before = await page.evaluate(() => MODES[state.canvasMode]);
+  await page.click('#sidebar-next');
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(() => MODES[state.canvasMode]);
+  if (after === before) throw new Error('next did not change mode');
+  await page.click('#sidebar-prev');
+  await page.waitForTimeout(300);
+  const back = await page.evaluate(() => MODES[state.canvasMode]);
+  if (back !== before) throw new Error('prev did not return: ' + back);
+  // draw, then erase via sidebar
+  const box = await page.locator('#main-canvas').boundingBox();
+  await page.mouse.move(box.x + 200, box.y + 300); await page.mouse.down();
+  for (let k = 0; k < 8; k++) { await page.mouse.move(box.x + 200 + k * 25, box.y + 300 + k * 10); await page.waitForTimeout(30); }
+  await page.mouse.up();
+  await page.click('#sidebar-erase');
+  await page.waitForTimeout(400);
+  const lit = await page.evaluate(() => {
+    const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+    return n;
+  });
+  if (lit > 2) throw new Error('erase left content: ' + lit); // calm start keeps it blank after clear
+  const sig = await page.evaluate(() => readSignals(state.activeProfileId).filter(e => e.type === 'mode_select' && e.payload && e.payload.via === 'sidebar').length);
+  if (sig < 2) throw new Error('sidebar mode_select signals missing: ' + sig);
+  return 'erase+prev/next+signals OK';
+});
+
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);
 await browser.close();
 process.exit(failed ? 1 : 0);

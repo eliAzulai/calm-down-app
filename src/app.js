@@ -707,6 +707,7 @@ function backToProfiles() {
   stopSoundOnExit();
   closeModeTray(); // same exit hygiene stopSoundOnExit gives the sound panel
   closeStyleTray(); // same exit hygiene, third panel (Task A4)
+  closeQuickSidebar(); // same exit hygiene, quick sidebar (Spec 4 F2)
   stopGentlePromptTimer();
   closeBreatheOverlay();
   closeGroundOverlay();
@@ -1412,7 +1413,9 @@ function flushTouchSignals() {
 
 // --- Clear Button ---
 
-$btnClear.addEventListener('click', function() {
+// Named so the quick sidebar's erase button (Spec 4 F2) can call the exact
+// same handler instead of duplicating clear logic.
+function handleClearCanvas() {
   recordSignal('clear_canvas', { mode: MODES[state.canvasMode] });
   canvas.trails = [];
   canvas.particles = [];
@@ -1420,7 +1423,9 @@ $btnClear.addEventListener('click', function() {
   canvas.shapes = [];
   canvas.drawPaths = [];
   clearCanvasFull();
-});
+}
+
+$btnClear.addEventListener('click', handleClearCanvas);
 
 function clearCanvasFull() {
   if (!canvas.ctx) return;
@@ -3082,6 +3087,7 @@ function closeOtherPanels(except) {
   }
   if (except !== 'modes') closeModeTray();
   if (except !== 'style') closeStyleTray();
+  if (except !== 'sidebar') closeQuickSidebar();
 }
 
 // --- Sound Panel Toggle ---
@@ -3378,6 +3384,55 @@ function handleStyleControlClick(e, kind) {
 $styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });
 $styleChars.addEventListener('click', function (e) { handleStyleControlClick(e, 'character'); });
 $styleTrace.addEventListener('click', function (e) { handleStyleControlClick(e, 'trace'); });
+
+// --- Quick Sidebar (Spec 4 F2): bottom-left pull-out erase/prev/next ---
+//
+// Kid-facing, no dev gate. Mirrors the mode tray / style tray idioms exactly:
+// a toggle button, an exclusivity call through closeOtherPanels, and a
+// document-level outside-click closer that ignores clicks inside the panel
+// or on its own toggle so repeated taps on erase/prev/next keep it open.
+
+var $quickSidebar = document.getElementById('quick-sidebar');
+var $sidebarTab = document.getElementById('sidebar-tab');
+var $sidebarErase = document.getElementById('sidebar-erase');
+var $sidebarPrev = document.getElementById('sidebar-prev');
+var $sidebarNext = document.getElementById('sidebar-next');
+var quickSidebarOpen = false;
+
+// Hoisted so closeOtherPanels (defined earlier) can call it.
+function closeQuickSidebar() {
+  quickSidebarOpen = false;
+  $quickSidebar.classList.remove('open');
+  $sidebarTab.setAttribute('aria-expanded', 'false');
+}
+
+$sidebarTab.addEventListener('click', function (e) {
+  e.stopPropagation();
+  quickSidebarOpen = !quickSidebarOpen;
+  $quickSidebar.classList.toggle('open', quickSidebarOpen);
+  $sidebarTab.setAttribute('aria-expanded', String(quickSidebarOpen));
+  if (quickSidebarOpen) closeOtherPanels('sidebar');
+});
+
+// Close sidebar on outside click
+document.addEventListener('click', function (e) {
+  if (quickSidebarOpen && !$quickSidebar.contains(e.target)) {
+    closeQuickSidebar();
+  }
+});
+
+$sidebarErase.addEventListener('click', function (e) {
+  e.stopPropagation();
+  handleClearCanvas();
+});
+
+function sidebarStep(delta) {
+  var next = (state.canvasMode + delta + MODES.length) % MODES.length;
+  switchToMode(next, 'sidebar'); // switchToMode already records mode_select with the via value
+}
+
+$sidebarPrev.addEventListener('click', function (e) { e.stopPropagation(); sidebarStep(-1); });
+$sidebarNext.addEventListener('click', function (e) { e.stopPropagation(); sidebarStep(1); });
 
 // Play/pause
 $btnPlayPause.addEventListener('click', togglePlayPause);
