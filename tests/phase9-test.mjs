@@ -93,12 +93,14 @@ async function ensureProfile(page) {
   await page.locator('.profile-card.filled', { hasText: SIGNAL_PROFILE_NAME }).click();
   await page.waitForTimeout(700);
 
-  const canvas = await page.$('#main-canvas');
-  const box = await canvas.boundingBox();
-  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForTimeout(250);
-  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForTimeout(500);
+  // AUTHORIZED REFRESH (Spec 4 F3): double-tap retired; sidebar step emits the same mode_cycle
+  const sidebarAlreadyOpen = await page.evaluate(() => document.getElementById('quick-sidebar').classList.contains('open'));
+  if (!sidebarAlreadyOpen) {
+    await page.click('#sidebar-tab');
+    await page.waitForSelector('#quick-sidebar.open');
+  }
+  await page.click('#sidebar-next');
+  await page.waitForTimeout(400);
 
   await page.click('#btn-sound');
   await page.waitForTimeout(200);
