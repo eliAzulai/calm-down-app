@@ -252,6 +252,19 @@ await check('Size slider UI persists and applies via tray', async () => {
 });
 
 await check('Trace=stays persists mandala sparks; fades drains them', async () => {
+  // Pre-existing test bug (surfaced by Spec 4 calm-start): the prior check
+  // ("Size slider UI persists...") leaves the style tray open, and it covers
+  // (300,300) with a real chip button (confirmed via elementFromPoint) --
+  // so the mousedown below used to land on tray chrome, never reaching
+  // #main-canvas at all. This was invisible pre-calm-start only because
+  // mandala's old idle() self-spawned an ambient spark on its very first
+  // frame regardless of touch (exactly the bug calm start fixes), so
+  // `sparks.length` was already 1 before the phantom click. Now that idle
+  // spawn is gated on state.hasTouched, the phantom click produces nothing.
+  // Close the tray first, matching the same guard the orbits check below
+  // already uses for the identical leftover-tray-chrome hazard.
+  const trayWasOpenForTrace = await page.evaluate(() => document.getElementById('style-tray').classList.contains('open'));
+  if (trayWasOpenForTrace) { await page.click('#btn-style'); await page.waitForTimeout(200); }
   await page.evaluate(() => { switchToMode(MODES.indexOf('mandala'), 'tray'); });
   await page.waitForTimeout(300);
   await page.evaluate(() => window.CALM_MODES.get('mandala').applyControl(canvas.regState, 'trace', 'stays'));

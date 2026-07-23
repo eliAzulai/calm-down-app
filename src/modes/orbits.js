@@ -297,6 +297,10 @@
         characterId: 'ellipse', // current character preset id; existing particles ease toward it
         sizeMul: 1, sizeRandom: false,
         traceMode: 'fades',  // kid-facing trace control: 'fades' (default) | 'stays'
+        // calm start: idle anchor + ambient motes only after the kid's first
+        // touch (Spec 4 F1) -- distinct from the pre-existing hasEverTouched
+        // field above, which is set but never read anywhere else in this file
+        hasTouched: false,
         // Persistent ink layer for trace 'stays' (Echo's validated stamp-
         // canvas pattern): lazily created the first frame 'stays' is active
         // (see ensureInkLayer), so 'fades'-only sessions never pay for it.
@@ -309,6 +313,7 @@
 
     pointer: function (state, x, y, kind) {
       if (kind === 'down') {
+        state.hasTouched = true;
         // release the idle anchor into normal lifecycle the moment real touch begins
         if (state.idleSeeded && state.idleAnchorIdx != null) {
           var idleA = state.anchors[state.idleAnchorIdx];
@@ -633,6 +638,7 @@
     },
 
     idle: function (state, w, h, dt) {
+      if (!state.hasTouched) return; // calm start: no idle anchor before first touch (Spec 4 F1)
       // If user has planted anchors and constellation still alive/dispersing, skip idle spawn.
       if (state.anchors.length > 0) return;
       if (state.pointerDown) return;
