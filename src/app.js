@@ -667,7 +667,7 @@ function enterProfile(profile) {
   // though MODES[0] is now 'echo' (registry modes lead the ring so tray/tests
   // treat them as first-class). Without a dev-set default, fall back to
   // trails explicitly rather than index 0, preserving what kids see today;
-  // the new registry modes are reachable via double-tap cycling or the mode
+  // the new registry modes are reachable via the quick sidebar or the mode
   // tray. Revisit once the observation cycle (Task A-later) has data.
   state.canvasMode = defaultModeIndex >= 0 ? defaultModeIndex : MODES.indexOf('trails');
 
@@ -1231,10 +1231,6 @@ function renderDrawing(ctx) {
 
 // --- Touch / Pointer Events ---
 
-var lastTapTime = 0;
-var lastTapX = 0;
-var lastTapY = 0;
-
 $mainCanvas.addEventListener('pointerdown', function(e) {
   if (sfx.active && !audio.ctx) ensureAudioContext();
   e.preventDefault();
@@ -1252,20 +1248,6 @@ $mainCanvas.addEventListener('pointerdown', function(e) {
   if (!isRegistryMode(mode) && mode === 'particles') spawnParticles(x, y, 8);
   if (!isRegistryMode(mode) && mode === 'ripples') addRipple(x, y);
   if (!isRegistryMode(mode) && mode === 'geometric') addShape(x, y);
-
-  // Double-tap detection
-  var now = Date.now();
-  var dx = x - lastTapX;
-  var dy = y - lastTapY;
-  var dist = Math.sqrt(dx * dx + dy * dy);
-  if (now - lastTapTime < 350 && dist < 50) {
-    cycleMode();
-    lastTapTime = 0;
-  } else {
-    lastTapTime = now;
-    lastTapX = x;
-    lastTapY = y;
-  }
 
   // Pinch detection — if 2 pointers, start pinch
   var touchKeys = Object.keys(canvas.touches);
@@ -1323,11 +1305,14 @@ $mainCanvas.addEventListener('pointercancel', function(e) {
 
 // --- Mode Cycling ---
 
-// Shared by double-tap cycling AND the mode tray so both entry points wipe
-// state and record signals identically. `via` is 'doubletap' or 'tray' —
+// Shared by the mode tray AND the quick sidebar so both entry points wipe
+// state and record signals identically. `via` is 'tray' or 'sidebar' —
 // recorded on the additive mode_select signal only; recordModeChange's own
 // mode_end/mode_cycle/mode_start + signalSession.mode bookkeeping (the data
 // the observation cycle depends on) runs exactly the same either way.
+// (Double-tap cycling was retired in Spec 4 B3 — the sidebar's prev/next
+// buttons are the deliberate replacement; kids were triggering mode changes
+// by accident.)
 function switchToMode(index, via) {
   var previousMode = MODES[state.canvasMode];
   state.canvasMode = index;
@@ -1352,13 +1337,9 @@ function switchToMode(index, via) {
   clearCanvasFull();
   showModeIndicator();
   // Style tray reflects the ACTIVE mode's controls — if it's open while the
-  // kid switches modes (tray or double-tap), keep it in sync rather than
+  // kid switches modes (tray or sidebar), keep it in sync rather than
   // showing the stale previous mode's swatches/chips.
   if (typeof styleTrayOpen !== 'undefined' && styleTrayOpen) renderStyleTray();
-}
-
-function cycleMode() {
-  switchToMode((state.canvasMode + 1) % MODES.length, 'doubletap');
 }
 
 function showModeIndicator() {

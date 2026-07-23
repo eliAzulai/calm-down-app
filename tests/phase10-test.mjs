@@ -46,15 +46,20 @@ await check('SW precaches mode files at v5', async () => {
   return 'v5 + 8 files';
 });
 
-await check('New modes render pixels via double-tap cycling', async () => {
-  // ADAPTATION: the plan's dblclick target (box.x+60, box.y+60) lands inside
-  // #btn-back (rect x:24 y:24 w:48 h:48 -> covers 24-72 on both axes at this
-  // viewport), so those events never reach #main-canvas at all. Verified via
-  // elementFromPoint(60,60) === #btn-back in a throwaway probe. Reusing the
-  // same (200,300) point the drag already uses is inside the canvas with no
-  // chrome overlap (confirmed via elementFromPoint(200,300) === #main-canvas)
-  // and doesn't fight the drag, since the double-tap always runs AFTER the
-  // drag/up for that same mode has completed.
+await check('New modes render pixels via sidebar-next cycling', async () => {
+  // AUTHORIZED REFRESH (Spec 4 B3): double-tap cycling removed; the sidebar's
+  // Next button replaces it as the sequential mode-step surface. Open the
+  // sidebar once, up front — it stays open across repeated Next taps (B2
+  // guaranteed this) so it doesn't need reopening each iteration.
+  // OVERLAP CHECK: the pixel sampling below reads the canvas element's own
+  // bitmap via getImageData — DOM chrome sitting on top of it (the open
+  // sidebar) never touches that data. The drag strokes run from (200,300)
+  // out to (200+7*30, 300+7*12) = (410,384), and the sidebar occupies only
+  // the bottom-left corner (~24-100px from the left/bottom edges at this
+  // 768x1024 viewport) — well clear of that stroke path.
+  await page.click('#sidebar-tab');
+  await page.waitForSelector('#quick-sidebar.open');
+
   const results = {};
   for (let i = 0; i < 12; i++) {
     const mode = await page.evaluate(() => MODES[state.canvasMode]);
@@ -78,7 +83,7 @@ await check('New modes render pixels via double-tap cycling', async () => {
       await page.waitForTimeout(150);
     }
     results[mode] = lit;
-    await page.mouse.dblclick(box.x + 200, box.y + 300);
+    await page.click('#sidebar-next');
     await page.waitForTimeout(350);
   }
   const dead = Object.entries(results).filter(([, n]) => n < 3).map(([m]) => m);

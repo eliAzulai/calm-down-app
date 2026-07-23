@@ -115,6 +115,42 @@ await check('Sidebar erase clears, prev/next change mode and signal', async () =
   return 'erase+prev/next+signals OK';
 });
 
+await check('Double-tap no longer changes mode', async () => {
+  // PRECONDITION: the prior check's canvas drag fires a native 'click' on
+  // #main-canvas, which the document-level outside-click listener treats as
+  // "outside the sidebar" and closes it — so #quick-sidebar is usually
+  // already closed here. But #sidebar-tab is a toggle, so blindly clicking
+  // it would REOPEN a closed sidebar instead of closing an open one. Check
+  // the actual DOM state first and only click to close if it's open.
+  const sidebarOpenBefore = await page.evaluate(() => document.getElementById('quick-sidebar').classList.contains('open'));
+  if (sidebarOpenBefore) {
+    await page.click('#sidebar-tab');
+    await page.waitForTimeout(300);
+  }
+  const sidebarOpen = await page.evaluate(() => document.getElementById('quick-sidebar').classList.contains('open'));
+  if (sidebarOpen) throw new Error('sidebar still open before double-tap probe');
+
+  const before = await page.evaluate(() => MODES[state.canvasMode]);
+  const box = await page.locator('#main-canvas').boundingBox();
+  // Sidebar lives bottom-left (~24-100px from left/bottom edges); (300,400)
+  // is nowhere near it. Verified via elementFromPoint that this point is
+  // #main-canvas itself, not sidebar/tray chrome (same hazard phase10's
+  // double-tap comment flags for (60,60) landing on #btn-back).
+  const target = await page.evaluate(({ x, y }) => {
+    const el = document.elementFromPoint(x, y);
+    return el && el.id;
+  }, { x: box.x + 300, y: box.y + 400 });
+  if (target !== 'main-canvas') throw new Error('tap point is not bare canvas: ' + target);
+
+  await page.mouse.click(box.x + 300, box.y + 400);
+  await page.waitForTimeout(100);
+  await page.mouse.click(box.x + 300, box.y + 400);
+  await page.waitForTimeout(450);
+  const after = await page.evaluate(() => MODES[state.canvasMode]);
+  if (after !== before) throw new Error('double-tap still cycles: ' + before + ' -> ' + after);
+  return 'double-tap inert';
+});
+
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);
 await browser.close();
 process.exit(failed ? 1 : 0);

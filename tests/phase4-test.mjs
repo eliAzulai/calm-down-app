@@ -54,14 +54,17 @@ function log(check, pass, detail) {
   log('Modes include trails, particles, ripples, geometric, drawing',
     ['trails','particles','ripples','geometric','drawing'].every(m => modeNames.includes(m)), modeNames);
 
-  // --- Cycle to Geometric (3rd double-tap from entry) ---
-  // Double-tap 3 times from the default entry mode: trails → particles →
-  // ripples → geometric. (Tap count, not MODES array index — Task A2 moved
+  // AUTHORIZED REFRESH (Spec 4 B3): double-tap cycling removed; the sidebar's
+  // Next button is now the sequential mode-step surface. Same assertions.
+  await page.click('#sidebar-tab');
+  await page.waitForSelector('#quick-sidebar.open');
+
+  // --- Cycle to Geometric (3rd sidebar-next step from entry) ---
+  // Step 3 times from the default entry mode: trails → particles →
+  // ripples → geometric. (Step count, not MODES array index — Task A2 moved
   // 'geometric' to MODES[10] once the 7 registry modes lead the ring.)
   for (let i = 0; i < 3; i++) {
-    await page.mouse.click(400, 500);
-    await page.waitForTimeout(100);
-    await page.mouse.click(400, 500);
+    await page.click('#sidebar-next');
     await page.waitForTimeout(500);
   }
 
@@ -99,9 +102,7 @@ function log(check, pass, detail) {
   await page.screenshot({ path: 'tests/screenshots/phase4-geometric.png' });
 
   // --- Cycle to Drawing (mode index 4) ---
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(100);
-  await page.mouse.click(400, 500);
+  await page.click('#sidebar-next');
   await page.waitForTimeout(500);
 
   const drawMode = await page.$eval('#mode-indicator', el => el.textContent);
@@ -144,17 +145,16 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase4-drawing.png' });
 
-  // AUTHORIZED REFRESH (Task A2): at this point we're on Freeform (drawing),
-  // having double-tapped from the default 'trails' entry mode through
-  // particles -> ripples -> geometric -> drawing (4 taps so far, matching
-  // the checks above). The ring grew to 12 (7 registry modes + these 5
-  // legacy ones), so completing the lap back to Finger Trails needs 8 more
-  // taps: Freeform -> Echo -> Currents -> Orbits -> Mandala -> Bloom ->
-  // Morph -> Etch -> Finger Trails.
+  // AUTHORIZED REFRESH (Task A2, updated Spec 4 B3): at this point we're on
+  // Freeform (drawing), having stepped from the default 'trails' entry mode
+  // through particles -> ripples -> geometric -> drawing (4 sidebar-next
+  // steps so far, matching the checks above). The ring grew to 12 (7
+  // registry modes + these 5 legacy ones), so completing the lap back to
+  // Finger Trails needs 8 more steps: Freeform -> Echo -> Currents -> Orbits
+  // -> Mandala -> Bloom -> Morph -> Etch -> Finger Trails.
+  // count updated in Spec4 B4
   for (let i = 0; i < 8; i++) {
-    await page.mouse.click(400, 500);
-    await page.waitForTimeout(100);
-    await page.mouse.click(400, 500);
+    await page.click('#sidebar-next');
     await page.waitForTimeout(500);
   }
 
