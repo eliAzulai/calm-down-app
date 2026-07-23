@@ -1,0 +1,52 @@
+name: CI
+
+# The machine gate: every PR (and every push to main) runs the full Playwright
+# battery on GitHub's runners. main auto-deploys to the live kids' app
+# (calm-station.vercel.app), so nothing should merge unverified — this
+# workflow is what makes the repo Ringer-eligible per the darkFactory
+# routing rule (CI-gated repos only).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start app server
+        run: |
+          npx http-server src -p 8080 -s &
+          curl -s --retry 20 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:8080
+          echo "server up"
+
+      - name: Run full test battery (11 suites)
+        run: |
+          fail=0
+          for t in tests/phase1-test.mjs tests/phase2-test.mjs tests/phase3-test.mjs \
+                   tests/phase4-test.mjs tests/phase5-test.mjs tests/phase6-test.mjs \
+                   tests/phase7-test.mjs tests/phase8-test.mjs tests/phase9-test.mjs \
+                   tests/soundscape-test.mjs tests/phase10-test.mjs; do
+            echo "::group::$t"
+            if ! node "$t"; then
+              echo "::error::$t FAILED"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $fail
