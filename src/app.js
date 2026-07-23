@@ -23,6 +23,8 @@ const ICONS = [
 const MAX_PROFILES = 2;
 const STORAGE_KEY = 'calm-station-profiles';
 
+window.APP_VERSION = 'v6'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
+
 // --- SVG Icon Renderer ---
 
 function getIconSVG(iconId, color, size) {
@@ -3637,6 +3639,7 @@ function hexToRGB(hex) {
 var $screenParent = document.getElementById('screen-parent');
 var $parentBack = document.getElementById('parent-back');
 var $parentProfiles = document.getElementById('parent-profiles');
+var $parentVersion = document.getElementById('parent-version');
 var $telegramUrl = document.getElementById('telegram-url');
 var $telegramSave = document.getElementById('telegram-save');
 var $telegramTest = document.getElementById('telegram-test');
@@ -3650,6 +3653,15 @@ var $devExport = document.getElementById('dev-export');
 var $devReset = document.getElementById('dev-reset');
 var $devSaveControls = document.getElementById('dev-save-controls');
 var $devStatus = document.getElementById('dev-status');
+var $devVersion = document.getElementById('dev-version');
+
+// Version stamp is static for the life of the page — set it once at load so
+// it's readable even if the dev/parent dashboards are never opened (the
+// screens stay in the DOM regardless of .active), not gated behind their
+// render functions (which also refresh it, redundantly but harmlessly, each
+// time those dashboards open).
+if ($devVersion) $devVersion.textContent = 'Calm Station ' + window.APP_VERSION;
+if ($parentVersion) $parentVersion.textContent = 'Calm Station ' + window.APP_VERSION;
 
 setActiveScreenAccessibility($screenProfiles);
 
@@ -3754,6 +3766,7 @@ function closeDevDashboard() {
 }
 
 function renderDevDashboard() {
+  if ($devVersion) $devVersion.textContent = 'Calm Station ' + window.APP_VERSION;
   renderDevProfiles();
   renderDevControls();
   renderDevEvents();
@@ -4127,6 +4140,7 @@ function getProfileSessions(profileId) {
 }
 
 function renderParentDashboard() {
+  if ($parentVersion) $parentVersion.textContent = 'Calm Station ' + window.APP_VERSION;
   $parentProfiles.textContent = '';
 
   if (state.profiles.length === 0) {

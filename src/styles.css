@@ -1704,6 +1704,14 @@ html, body {
   font-size: 1.75rem;
 }
 
+/* Shared by #dev-version (dev-header) and #parent-version (parent-body
+   footer) — the visible build stamp, kept equal to sw.js CACHE_NAME. */
+.app-version {
+  display: block;
+  opacity: 0.5;
+  font-size: 0.75rem;
+}
+
 #dev-back,
 #dev-export,
 #dev-save-controls,

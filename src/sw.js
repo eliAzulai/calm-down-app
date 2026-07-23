@@ -2,7 +2,7 @@
 // cache-first, so an unbumped version never reaches already-installed clients.
 // Install is atomic (cache.addAll): on a flaky first visit it can fail whole;
 // accepted for this deployment (home-wifi iPad) — retry happens next visit.
-var CACHE_NAME = 'calm-station-v5';
+var CACHE_NAME = 'calm-station-v6';
 var ASSETS = [
   './',
   './index.html',
@@ -30,6 +30,7 @@ var ASSETS = [
   './modes/morph.js',
   './modes/echo.js',
   './modes/etch.js',
+  './modes/invert.js',
 ];
 
 // Install: cache all core assets

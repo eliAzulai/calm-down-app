@@ -277,8 +277,9 @@ await check('SW precaches audio assets', async () => {
     'audio/sfx/chime.mp3', 'audio/sfx/drop.mp3', 'audio/sfx/bird.mp3', 'audio/sfx/bowl.mp3', 'audio/sfx/breeze.mp3'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  if (!body.includes('calm-station-v5')) throw new Error('cache name not bumped');
-  return 'v5 + 8 audio assets';
+  // AUTHORIZED REFRESH (Spec 4 B5): cache bumped v5->v6 for invert.js precache
+  if (!body.includes('calm-station-v6')) throw new Error('cache name not bumped');
+  return 'v6 + 8 audio assets';
 });
 
 await check('SW cache actually contains audio (real Cache Storage)', async () => {

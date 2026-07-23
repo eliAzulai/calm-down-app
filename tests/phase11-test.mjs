@@ -218,6 +218,33 @@ await check('Invert: stroke carves darkness; stays persists; fades heals', async
   return `carve ${carvedStays.toFixed(2)} stays ${stillCarved.toFixed(2)} mid ${midHeal.toFixed(2)} healed ${healed.toFixed(2)}`;
 });
 
+await check('Version stamp visible in parent and dev; matches SW cache', async () => {
+  const sw = await (await page.request.get(`${BASE}/sw.js`)).text();
+  const m = sw.match(/calm-station-(v\d+)/);
+  const appV = await page.evaluate(() => window.APP_VERSION);
+  if (!m || appV !== m[1]) throw new Error('APP_VERSION ' + appV + ' != sw ' + (m && m[1]));
+  const devText = await page.textContent('#screen-dev');
+  if (!devText.includes(appV)) throw new Error('version not in dev dashboard');
+  // Parent stamp is populated at module-load time (not gated behind opening
+  // the parent dashboard — see app.js var-declaration block), so reading
+  // #screen-parent while inactive is a real assertion, not a hope: the
+  // screens stay in the DOM regardless of .active, and $parentVersion's
+  // textContent is set once up front rather than only inside
+  // renderParentDashboard().
+  const parentText = await page.textContent('#screen-parent');
+  if (!parentText.includes(appV)) throw new Error('version not in parent dashboard');
+  return appV + ' stamped (dev + parent)';
+});
+
+await check('SW v6 precaches invert.js', async () => {
+  const body = await (await page.request.get(`${BASE}/sw.js`)).text();
+  const wanted = ['modes/invert.js'];
+  const missing = wanted.filter(w => !body.includes(w));
+  if (missing.length) throw new Error('missing: ' + missing.join(','));
+  if (!body.includes('calm-station-v6')) throw new Error('cache not v6');
+  return 'v6 + invert.js';
+});
+
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);
 await browser.close();
 process.exit(failed ? 1 : 0);
