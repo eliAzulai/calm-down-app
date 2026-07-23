@@ -42,13 +42,13 @@ function log(check, pass, detail) {
   await page.click('.profile-card.filled');
   await page.waitForTimeout(600);
 
-  // AUTHORIZED REFRESH (Task A2): the ring grew from 5 legacy modes to 12
-  // (7 registry modes registered first, then the original 5 legacy modes).
+  // AUTHORIZED REFRESH (Spec 4 B4): the ring grew from 12 modes to 13
+  // (7 registry modes + invert, then the original 5 legacy modes).
   // Kept the original check name string intentionally so the historical
   // "what does this check assert" stays greppable; only the expected count
   // and the membership check below changed.
   const modeCount = await page.evaluate(() => MODES.length);
-  log('12 canvas modes', modeCount === 12, `${modeCount} modes`);
+  log('13 canvas modes', modeCount === 13, `${modeCount} modes`);
 
   const modeNames = await page.evaluate(() => MODES.join(', '));
   log('Modes include trails, particles, ripples, geometric, drawing',
@@ -145,15 +145,14 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase4-drawing.png' });
 
-  // AUTHORIZED REFRESH (Task A2, updated Spec 4 B3): at this point we're on
-  // Freeform (drawing), having stepped from the default 'trails' entry mode
-  // through particles -> ripples -> geometric -> drawing (4 sidebar-next
-  // steps so far, matching the checks above). The ring grew to 12 (7
-  // registry modes + these 5 legacy ones), so completing the lap back to
-  // Finger Trails needs 8 more steps: Freeform -> Echo -> Currents -> Orbits
-  // -> Mandala -> Bloom -> Morph -> Etch -> Finger Trails.
-  // count updated in Spec4 B4
-  for (let i = 0; i < 8; i++) {
+  // AUTHORIZED REFRESH (Spec 4 B4): at this point we're on Freeform
+  // (drawing), having stepped from the default 'trails' entry mode through
+  // particles -> ripples -> geometric -> drawing (4 sidebar-next steps so
+  // far, matching the checks above). The ring grew to 13 (7 registry modes +
+  // invert + these 5 legacy ones), so completing the lap back to Finger
+  // Trails needs 9 more steps: Freeform -> Echo -> Currents -> Orbits ->
+  // Mandala -> Bloom -> Morph -> Etch -> Invert -> Finger Trails.
+  for (let i = 0; i < 9; i++) {
     await page.click('#sidebar-next');
     await page.waitForTimeout(500);
   }

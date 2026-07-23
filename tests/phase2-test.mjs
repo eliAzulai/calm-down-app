@@ -156,22 +156,21 @@ function log(check, pass, detail) {
   const modeDrawing = await page.$eval('#mode-indicator', el => el.textContent);
   log('Sidebar next steps to Freeform', modeDrawing === 'Freeform', modeDrawing);
 
-  // AUTHORIZED REFRESH (Task A2): the ring grew from 5 legacy modes to 12
-  // (7 registry modes + the original 5), and the default kid-facing entry
-  // mode stays 'trails' (see enterProfile decision in src/app.js) even
-  // though MODES[0] is now 'echo'. From trails we've already stepped 4 times
-  // above (-> Particles, Ripples, Geometric, Freeform), so 8 more Next steps
-  // complete the full 12-mode lap and land back on Finger Trails: Freeform
-  // -> Echo -> Currents -> Orbits -> Mandala -> Bloom -> Morph -> Etch ->
-  // Finger Trails.
-  // count updated in Spec4 B4
-  for (let i = 0; i < 8; i++) {
+  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode. The ring grew from 12 modes
+  // to 13 (7 registry modes + invert + the original 5 legacy), and the
+  // default kid-facing entry mode stays 'trails' (see enterProfile decision
+  // in src/app.js) even though MODES[0] is now 'echo'. From trails we've
+  // already stepped 4 times above (-> Particles, Ripples, Geometric,
+  // Freeform), so 9 more Next steps complete the full 13-mode lap and land
+  // back on Finger Trails: Freeform -> Echo -> Currents -> Orbits -> Mandala
+  // -> Bloom -> Morph -> Etch -> Invert -> Finger Trails.
+  for (let i = 0; i < 9; i++) {
     await page.click('#sidebar-next');
     await page.waitForTimeout(400);
   }
 
   const modeWrapped = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Modes wrap back to Finger Trails after 12 modes', modeWrapped === 'Finger Trails', modeWrapped);
+  log('Modes wrap back to Finger Trails after 13 modes', modeWrapped === 'Finger Trails', modeWrapped);
 
   // CHECK 8: Clear button exists and works
   const clearBtn = await page.$('#btn-clear');

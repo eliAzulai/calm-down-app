@@ -30,9 +30,13 @@ await page.goto(BASE);
 await page.click('.profile-card.filled');
 await page.waitForSelector('#screen-canvas.active');
 
-await check('Registry exposes 7 modes, echo first', async () => {
+await check('Registry exposes 8 modes, echo first', async () => {
+  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode. invert is a registry mode
+  // (window.VARIANTS + registry.js ORDER), so the registry list grew from
+  // 7 to 8. Not one of the plan's called-out "12-mode" literals — found via
+  // grep for registry-list-length assertions while auditing the refresh.
   const list = await page.evaluate(() => window.CALM_MODES && window.CALM_MODES.list);
-  if (!list || list.length !== 7) throw new Error('list=' + JSON.stringify(list));
+  if (!list || list.length !== 8) throw new Error('list=' + JSON.stringify(list));
   if (list[0] !== 'echo') throw new Error('echo not first: ' + list[0]);
   return list.join(',');
 });
@@ -91,12 +95,13 @@ await check('New modes render pixels via sidebar-next cycling', async () => {
   return Object.keys(results).length + ' modes alive';
 });
 
-await check('Mode tray opens and lists 12 modes', async () => {
+await check('Mode tray opens and lists 13 modes', async () => {
+  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode
   await page.click('#btn-modes');
   await page.waitForSelector('#mode-tray.open');
   const n = await page.locator('#mode-options .mode-option').count();
-  if (n !== 12) throw new Error('modes=' + n);
-  return '12 chips';
+  if (n !== 13) throw new Error('modes=' + n);
+  return '13 chips';
 });
 
 await check('Tray selects a mode and records signal', async () => {

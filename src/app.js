@@ -643,18 +643,19 @@ function saveNewProfile() {
 
 // --- Canvas Visual Modes ---
 
-const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch',
+// AUTHORIZED REFRESH (Spec 4 B4): 13th mode
+const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch', 'invert',
                'trails', 'particles', 'ripples', 'geometric', 'drawing'];
 const MODE_LABELS = {
   echo: 'Echo', currents: 'Currents', orbits: 'Orbits', mandala: 'Mandala',
-  bloom: 'Bloom', morph: 'Morph', etch: 'Etch',
+  bloom: 'Bloom', morph: 'Morph', etch: 'Etch', invert: 'Invert',
   trails: 'Finger Trails', particles: 'Particles', ripples: 'Ripples',
   geometric: 'Geometric', drawing: 'Freeform',
 };
-// The five modes with a "trace" (fades vs stays) concept — echo/etch are
+// The modes with a "trace" (fades vs stays) concept — echo/etch are
 // exempt because persistence IS their identity (nothing to toggle), and
 // legacy modes have no registry controls at all.
-const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph'];
+const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph', 'invert'];
 
 // --- Screen Navigation ---
 

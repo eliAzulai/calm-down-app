@@ -151,6 +151,67 @@ await check('Double-tap no longer changes mode', async () => {
   return 'double-tap inert';
 });
 
+await check('Invert: registered, in tray, field blooms only after touch', async () => {
+  const reg = await page.evaluate(() => window.CALM_MODES.list.includes('invert') && MODES.includes('invert'));
+  if (!reg) throw new Error('invert not registered');
+  await page.click('#btn-modes'); await page.waitForSelector('#mode-tray.open');
+  const chips = await page.locator('#mode-options .mode-option').count();
+  if (chips !== 13) throw new Error('tray chips=' + chips);
+  await page.click('#btn-modes'); // close
+  await page.evaluate(() => { switchToMode(MODES.indexOf('invert'), 'test'); });
+  await page.click('#btn-clear');
+  await page.waitForTimeout(2500);
+  const litBefore = await page.evaluate(() => {
+    const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+    return n;
+  });
+  if (litBefore > 2) throw new Error('field bloomed pre-touch: ' + litBefore);
+  const box = await page.locator('#main-canvas').boundingBox();
+  await page.mouse.click(box.x + 380, box.y + 500);
+  await page.waitForTimeout(3000);
+  const litAfter = await page.evaluate(() => {
+    const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let j = 3; j < d.length; j += 400) { if (d[j] > 8) n++; }
+    return n;
+  });
+  if (litAfter < 30) throw new Error('field did not bloom: ' + litAfter);
+  return `blank->bloom (${litBefore}->${litAfter})`;
+});
+
+await check('Invert: stroke carves darkness; stays persists; fades heals', async () => {
+  // stays first: carve and confirm the carved line stays dark
+  await page.evaluate(() => window.CALM_MODES.get('invert').applyControl(canvas.regState, 'trace', 'stays'));
+  await page.waitForTimeout(2500); // let field brighten
+  const box = await page.locator('#main-canvas').boundingBox();
+  const sampleCarve = () => page.evaluate(() => {
+    const c = document.getElementById('main-canvas'); const x = c.getContext('2d');
+    const dpr = c.width / c.clientWidth;
+    // sample along the carved horizontal path y=350 (CSS) from x=200..500
+    let dark = 0, total = 0;
+    const d = x.getImageData(Math.round(200 * dpr), Math.round(348 * dpr), Math.round(300 * dpr), Math.round(4 * dpr)).data;
+    for (let j = 3; j < d.length; j += 40) { total++; if (d[j] <= 8) dark++; }
+    return dark / total;
+  });
+  await page.mouse.move(box.x + 200, box.y + 350); await page.mouse.down();
+  for (let k = 0; k <= 12; k++) { await page.mouse.move(box.x + 200 + k * 25, box.y + 350); await page.waitForTimeout(25); }
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const carvedStays = await sampleCarve();
+  if (carvedStays < 0.5) throw new Error('stays carve too weak: ' + carvedStays);
+  await page.waitForTimeout(5000);
+  const stillCarved = await sampleCarve();
+  if (stillCarved < 0.4) throw new Error('stays carve healed: ' + stillCarved);
+  // fades: same carve heals substantially within ~18s
+  await page.evaluate(() => window.CALM_MODES.get('invert').applyControl(canvas.regState, 'trace', 'fades'));
+  await page.waitForTimeout(18000);
+  const healed = await sampleCarve();
+  if (healed > stillCarved * 0.5) throw new Error('fades did not heal: ' + stillCarved + ' -> ' + healed);
+  return `carve ${carvedStays.toFixed(2)} stays ${stillCarved.toFixed(2)} healed ${healed.toFixed(2)}`;
+});
+
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);
 await browser.close();
 process.exit(failed ? 1 : 0);
