@@ -236,13 +236,14 @@ await check('Version stamp visible in parent and dev; matches SW cache', async (
   return appV + ' stamped (dev + parent)';
 });
 
-await check('SW v6 precaches invert.js', async () => {
+await check('SW v7 precaches invert.js', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   const wanted = ['modes/invert.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  if (!body.includes('calm-station-v6')) throw new Error('cache not v6');
-  return 'v6 + invert.js';
+  // AUTHORIZED REFRESH: cache bumped v6->v7 for renewal-rain.mp3 precache
+  if (!body.includes('calm-station-v7')) throw new Error('cache not v7');
+  return 'v7 + invert.js';
 });
 
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);
