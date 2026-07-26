@@ -23,7 +23,7 @@ const ICONS = [
 const MAX_PROFILES = 2;
 const STORAGE_KEY = 'calm-station-profiles';
 
-window.APP_VERSION = 'v7'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
+window.APP_VERSION = 'v8'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
 
 // --- SVG Icon Renderer ---
 
@@ -645,12 +645,12 @@ function saveNewProfile() {
 
 // --- Canvas Visual Modes ---
 
-// AUTHORIZED REFRESH (Spec 4 B4): 13th mode
-const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch', 'invert',
+// AUTHORIZED REFRESH (Spec 5 F1): 14th mode — pond joins the registry block
+const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch', 'invert', 'pond',
                'trails', 'particles', 'ripples', 'geometric', 'drawing'];
 const MODE_LABELS = {
   echo: 'Echo', currents: 'Currents', orbits: 'Orbits', mandala: 'Mandala',
-  bloom: 'Bloom', morph: 'Morph', etch: 'Etch', invert: 'Invert',
+  bloom: 'Bloom', morph: 'Morph', etch: 'Etch', invert: 'Invert', pond: 'Pond',
   trails: 'Finger Trails', particles: 'Particles', ripples: 'Ripples',
   geometric: 'Geometric', drawing: 'Freeform',
 };
@@ -759,8 +759,9 @@ var canvas = {
   ripples: [],
   // Geometric mode
   shapes: [],
-  // Drawing mode
-  drawPaths: [],      // completed stroke segments
+  // Drawing mode (Spec 5 F3: stroke-based — see FREEFORM DRAWING MODE section)
+  drawStrokes: [],    // strokes: {points:[{x,y}…], color, width}
+  activeStrokes: {},  // pointerId -> stroke ref (still being drawn)
   drawColor: null,    // current drawing color (set from accent)
   // Pinch zoom
   scale: 1,
@@ -785,7 +786,8 @@ function initCanvas() {
   canvas.particles = [];
   canvas.ripples = [];
   canvas.shapes = [];
-  canvas.drawPaths = [];
+  canvas.drawStrokes = [];
+  canvas.activeStrokes = {};
   canvas.drawColor = null;
   canvas.scale = 1;
   canvas.touches = {};
@@ -1195,40 +1197,114 @@ function drawPolygon(ctx, sides, radius) {
 }
 
 // --- FREEFORM DRAWING MODE ---
+// Stroke redesign (Spec 5 F3). The old model stored disconnected SEGMENTS,
+// each with its own randomly-rolled width (2–4px), each stroked separately
+// with round caps — adjacent segments visibly stepped thickness and every
+// joint double-painted the 0.2-alpha glow into a knot: the client-flagged
+// "caterpillar segments". A stroke is now one point array rendered as ONE
+// continuous path (quadratic curves through segment midpoints), so width is
+// stable, corners are round, and the glow paints once. Taps leave a soft dot
+// (the old model painted nothing without movement).
 
-function addDrawPoint(x, y, prevX, prevY) {
-  var c = canvas.drawColor || canvas.accentRGB;
-  canvas.drawPaths.push({
-    x: x, y: y,
-    prevX: prevX, prevY: prevY,
-    color: c,
-    width: (2 + Math.random() * 2) * canvas.scale,
-  });
-  if (canvas.drawPaths.length > 5000) canvas.drawPaths.splice(0, 500);
+var DRAW_MAX_STROKES = 240;
+var DRAW_MAX_POINTS = 6000; // across all strokes (≈ the old 5000-segment cap)
+var DRAW_MIN_DIST = 2;      // px; thins jittery sub-pixel move events
+
+function beginDrawStroke(id, x, y) {
+  var stroke = {
+    points: [{ x: x, y: y }],
+    color: canvas.drawColor || canvas.accentRGB,
+    // rolled ONCE per stroke — per-segment rolls were the caterpillar
+    width: (2.6 + Math.random() * 0.8) * canvas.scale,
+  };
+  canvas.drawStrokes.push(stroke);
+  canvas.activeStrokes[id] = stroke;
+  trimDrawStrokes();
 }
 
+function extendDrawStroke(id, x, y) {
+  var stroke = canvas.activeStrokes[id];
+  if (!stroke) return;
+  var last = stroke.points[stroke.points.length - 1];
+  var dx = x - last.x, dy = y - last.y;
+  if (dx * dx + dy * dy < DRAW_MIN_DIST * DRAW_MIN_DIST) return;
+  stroke.points.push({ x: x, y: y });
+  trimDrawStrokes();
+}
+
+// Safe for ANY pointer id in any mode (no-op when the id isn't drawing), so
+// the pointerup/pointercancel handlers call it unconditionally.
+function endDrawStroke(id) {
+  delete canvas.activeStrokes[id];
+}
+
+function trimDrawStrokes() {
+  var total = 0;
+  for (var i = 0; i < canvas.drawStrokes.length; i++) total += canvas.drawStrokes[i].points.length;
+  while ((canvas.drawStrokes.length > DRAW_MAX_STROKES || total > DRAW_MAX_POINTS) && canvas.drawStrokes.length > 1) {
+    var oldest = canvas.drawStrokes[0];
+    if (isActiveStroke(oldest)) break; // never orphan a stroke mid-draw
+    total -= oldest.points.length;
+    canvas.drawStrokes.shift();
+  }
+}
+
+function isActiveStroke(stroke) {
+  var keys = Object.keys(canvas.activeStrokes);
+  for (var i = 0; i < keys.length; i++) if (canvas.activeStrokes[keys[i]] === stroke) return true;
+  return false;
+}
+
+// One continuous path through the stroke's points: each interior point is a
+// control point, curving to the midpoint of it and its successor — C1-smooth
+// through every recorded sample, no visible joints.
+function traceStrokePath(ctx, pts) {
+  ctx.moveTo(pts[0].x, pts[0].y);
+  if (pts.length === 2) {
+    ctx.lineTo(pts[1].x, pts[1].y);
+    return;
+  }
+  for (var j = 1; j < pts.length - 1; j++) {
+    var midX = (pts[j].x + pts[j + 1].x) / 2;
+    var midY = (pts[j].y + pts[j + 1].y) / 2;
+    ctx.quadraticCurveTo(pts[j].x, pts[j].y, midX, midY);
+  }
+  var lastPt = pts[pts.length - 1];
+  ctx.lineTo(lastPt.x, lastPt.y);
+}
+
+var DRAW_PASSES = [
+  { widthMul: 3, alpha: 0.2 },   // glow
+  { widthMul: 1, alpha: 0.85 },  // core
+];
+
 function renderDrawing(ctx) {
-  for (var i = 0; i < canvas.drawPaths.length; i++) {
-    var p = canvas.drawPaths[i];
-    var c = p.color;
-
-    // Glow layer
-    ctx.beginPath();
-    ctx.moveTo(p.prevX, p.prevY);
-    ctx.lineTo(p.x, p.y);
-    ctx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.2)';
-    ctx.lineWidth = p.width * 3;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
-    // Core
-    ctx.beginPath();
-    ctx.moveTo(p.prevX, p.prevY);
-    ctx.lineTo(p.x, p.y);
-    ctx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.85)';
-    ctx.lineWidth = p.width;
-    ctx.lineCap = 'round';
-    ctx.stroke();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (var i = 0; i < canvas.drawStrokes.length; i++) {
+    var s = canvas.drawStrokes[i];
+    var c = s.color;
+    if (s.points.length === 1) {
+      // tap: soft dot (glow halo + core), sized to the stroke's own width
+      var p0 = s.points[0];
+      ctx.beginPath();
+      ctx.arc(p0.x, p0.y, s.width * 1.6, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.2)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p0.x, p0.y, s.width * 0.7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.85)';
+      ctx.fill();
+      continue;
+    }
+    for (var p = 0; p < DRAW_PASSES.length; p++) {
+      var pass = DRAW_PASSES[p];
+      ctx.beginPath();
+      traceStrokePath(ctx, s.points);
+      ctx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + pass.alpha + ')';
+      ctx.lineWidth = s.width * pass.widthMul;
+      ctx.stroke();
+    }
   }
 }
 
@@ -1246,11 +1322,14 @@ $mainCanvas.addEventListener('pointerdown', function(e) {
 
   var mode = MODES[state.canvasMode];
   if (isRegistryMode(mode)) {
-    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), x, y, 'down'); } catch (err) { registryModeError(mode, err); }
+    // Spec 5: meta {id, pressure} rides along as a 5th arg — pre-Spec-5 modes
+    // ignore it; pond needs pointer identity for per-finger hold charging.
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), x, y, 'down', { id: e.pointerId, pressure: e.pressure }); } catch (err) { registryModeError(mode, err); }
   }
   if (!isRegistryMode(mode) && mode === 'particles') spawnParticles(x, y, 8);
   if (!isRegistryMode(mode) && mode === 'ripples') addRipple(x, y);
   if (!isRegistryMode(mode) && mode === 'geometric') addShape(x, y);
+  if (!isRegistryMode(mode) && mode === 'drawing') beginDrawStroke(e.pointerId, x, y);
 
   // Pinch detection — if 2 pointers, start pinch
   var touchKeys = Object.keys(canvas.touches);
@@ -1274,12 +1353,12 @@ $mainCanvas.addEventListener('pointermove', function(e) {
 
   var mode = MODES[state.canvasMode];
   if (isRegistryMode(mode)) {
-    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'move'); } catch (err) { registryModeError(mode, err); }
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'move', { id: e.pointerId, pressure: e.pressure }); } catch (err) { registryModeError(mode, err); }
   }
   if (!isRegistryMode(mode) && mode === 'trails') addTrailPoint(touch.x, touch.y, touch.prevX, touch.prevY);
   if (!isRegistryMode(mode) && mode === 'ripples' && Math.random() < 0.15) addRipple(touch.x, touch.y);
   if (!isRegistryMode(mode) && mode === 'geometric' && Math.random() < 0.2) addShape(touch.x, touch.y);
-  if (!isRegistryMode(mode) && mode === 'drawing') addDrawPoint(touch.x, touch.y, touch.prevX, touch.prevY);
+  if (!isRegistryMode(mode) && mode === 'drawing') extendDrawStroke(e.pointerId, touch.x, touch.y);
 
   // Pinch zoom
   var touchKeys = Object.keys(canvas.touches);
@@ -1297,12 +1376,22 @@ $mainCanvas.addEventListener('pointerup', function(e) {
   var touch = canvas.touches[e.pointerId];
   var mode = MODES[state.canvasMode];
   if (touch && isRegistryMode(mode)) {
-    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'up'); } catch (err) { registryModeError(mode, err); }
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'up', { id: e.pointerId, pressure: e.pressure }); } catch (err) { registryModeError(mode, err); }
   }
+  endDrawStroke(e.pointerId);
   delete canvas.touches[e.pointerId];
 });
 
 $mainCanvas.addEventListener('pointercancel', function(e) {
+  // Spec 5: registry modes get an 'up' on cancel — before this, a cancelled
+  // touch silently vanished, which would leak a forever-charging hold point
+  // in pond (and left echo stuck dragging). Legacy-mode cleanup unchanged.
+  var touch = canvas.touches[e.pointerId];
+  var mode = MODES[state.canvasMode];
+  if (touch && isRegistryMode(mode)) {
+    try { window.CALM_MODES.get(mode).pointer(ensureRegState(mode), touch.x, touch.y, 'up', { id: e.pointerId, pressure: e.pressure }); } catch (err) { registryModeError(mode, err); }
+  }
+  endDrawStroke(e.pointerId);
   delete canvas.touches[e.pointerId];
 });
 
@@ -1327,7 +1416,8 @@ function switchToMode(index, via) {
   canvas.particles = [];
   canvas.ripples = [];
   canvas.shapes = [];
-  canvas.drawPaths = [];
+  canvas.drawStrokes = [];
+  canvas.activeStrokes = {};
   // Invalidate registry mode state so the next tick lazily re-inits via
   // ensureRegState — covers both directions (into AND out of a registry
   // mode; clearCanvasFull() below only re-inits when landing ON a registry
@@ -1405,7 +1495,8 @@ function handleClearCanvas() {
   canvas.particles = [];
   canvas.ripples = [];
   canvas.shapes = [];
-  canvas.drawPaths = [];
+  canvas.drawStrokes = [];
+  canvas.activeStrokes = {};
   clearCanvasFull();
 }
 
@@ -2934,6 +3025,118 @@ function stopSfxScheduler() {
   clearTimeout(sfx.timer);
   sfx.timer = null;
 }
+
+// --- CALM_CHIME: touch-chime voice (Spec 5 F2) ---
+// A shared service any canvas mode can ping (pond is the first caller): one
+// short synthesized bell per touch, routed through the always-connected
+// sfxBus -> masterGain so the volume slider, exit teardown, and the CALM_VIS
+// analyser all apply automatically. Deliberately NOT gated by the dev
+// `sfxEnabled` flag — that gates the *random ambient accent scheduler*;
+// chimes only ever sound in direct answer to the kid's own touch.
+//
+// Tuning: the same A-major pentatonic at A=432 as the ambient rain droplets
+// (DROPLET_FREQS), extended one octave up — a ping can never clash with the
+// ambient bed. Voices are self-contained one-shots (osc lifetimes bounded,
+// no loops), so nothing can stick on; a mode switch mid-decay just lets the
+// tail finish (< ~3.2 s).
+//
+// Source-agnostic by design: a decoded sample bank (the human-gated
+// ElevenLabs item from Soundscape 2.0) can replace the synth behind this
+// same ping() signature after a listening pass.
+
+var CHIME_LADDER = DROPLET_FREQS.concat(DROPLET_FREQS.map(function (f) { return f * 2; }));
+var CHIME_MAX_VOICES = 8;
+var CHIME_MIN_GAP_MS = 50;
+var chime = { voices: 0, lastAt: 0 };
+
+window.CALM_CHIME = {
+  // opts: pitch 0..1 (low..high note), intensity 0..1 (gain + brightness;
+  // pond feeds pressure, constant 0.5 on finger hardware), depth 0..1 (hold
+  // charge: lower register, longer decay, added octave shimmer), pan -1..1
+  // (rendered subtly at ±0.4 when StereoPanner exists).
+  ping: function (opts) {
+    try {
+      opts = opts || {};
+      var nowMs = performance.now();
+      if (nowMs - chime.lastAt < CHIME_MIN_GAP_MS) return; // rapid-mash rate cap
+      if (chime.voices >= CHIME_MAX_VOICES) return;        // polyphony cap
+      if (!audio.ctx) ensureAudioContext();                // caller is a pointer gesture
+      if (!audio.ctx || !audio.sfxBus) return;
+      if (audio.ctx.state === 'suspended') { try { audio.ctx.resume(); } catch (e0) {} }
+      chime.lastAt = nowMs;
+
+      var pitch = Math.max(0, Math.min(1, Number(opts.pitch) || 0));
+      var depth = Math.max(0, Math.min(1, Number(opts.depth) || 0));
+      var inten = (opts.intensity == null) ? 0.5 : Math.max(0, Math.min(1, Number(opts.intensity)));
+
+      // note selection: pitch walks the ladder; depth pulls the choice down
+      // into the lower register (the "deeper" of deeper-and-richer)
+      var idx = Math.round(pitch * (CHIME_LADDER.length - 1)) - Math.round(depth * 4);
+      idx = Math.max(0, Math.min(CHIME_LADDER.length - 1, idx));
+      var freq = CHIME_LADDER[idx];
+
+      var ctx = audio.ctx;
+      var t = ctx.currentTime;
+      var decay = 1.6 + 1.6 * depth;
+      var peak = Math.min(0.18, 0.05 + 0.10 * inten + 0.03 * depth);
+
+      // envelope: soft 15 ms attack (never clicky), exponential ring-out
+      var env = ctx.createGain();
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(peak, t + 0.015);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+
+      // brightness: intensity opens the lowpass (soft felt -> glassy)
+      var lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 900 + 2200 * inten;
+      lp.Q.value = 0.7;
+      lp.connect(env);
+
+      var dest = audio.sfxBus;
+      if (ctx.createStereoPanner) {
+        var pan = ctx.createStereoPanner();
+        pan.pan.value = Math.max(-1, Math.min(1, Number(opts.pan) || 0)) * 0.4;
+        env.connect(pan);
+        pan.connect(dest);
+      } else {
+        env.connect(dest);
+      }
+
+      // detuned ±3¢ sine pair through a 0.5 sum-scaler — detunedPair's
+      // warmth idiom, inlined because these are one-shots, not drones
+      var half = ctx.createGain();
+      half.gain.value = 0.5;
+      half.connect(lp);
+      var oa = ctx.createOscillator();
+      oa.type = 'sine'; oa.frequency.value = freq; oa.detune.value = -3;
+      var ob = ctx.createOscillator();
+      ob.type = 'sine'; ob.frequency.value = freq; ob.detune.value = 3;
+      oa.connect(half); ob.connect(half);
+
+      // held stones shimmer: a quiet octave partial rides the same envelope
+      var oc = null;
+      if (depth > 0.15) {
+        var partial = ctx.createGain();
+        partial.gain.value = 0.3 * depth;
+        partial.connect(lp);
+        oc = ctx.createOscillator();
+        oc.type = 'sine'; oc.frequency.value = freq * 2;
+        oc.connect(partial);
+      }
+
+      chime.voices++;
+      oa.onended = function () { chime.voices = Math.max(0, chime.voices - 1); };
+      var stopAt = t + decay + 0.05;
+      oa.start(t); oa.stop(stopAt);
+      ob.start(t); ob.stop(stopAt);
+      if (oc) { oc.start(t); oc.stop(stopAt); }
+    } catch (e) {
+      // Web Audio hiccup: a silent pebble is still a pebble.
+    }
+  },
+  _state: chime, // test hook: voice-count/rate-cap visibility
+};
 
 function togglePlayPause() {
   ensureAudioContext();

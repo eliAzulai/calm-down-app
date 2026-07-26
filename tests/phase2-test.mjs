@@ -156,21 +156,21 @@ function log(check, pass, detail) {
   const modeDrawing = await page.$eval('#mode-indicator', el => el.textContent);
   log('Sidebar next steps to Freeform', modeDrawing === 'Freeform', modeDrawing);
 
-  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode. The ring grew from 12 modes
-  // to 13 (7 registry modes + invert + the original 5 legacy), and the
+  // AUTHORIZED REFRESH (Spec 5 F1): 14th mode. The ring grew from 13 modes
+  // to 14 (8 registry modes + pond + the original 5 legacy), and the
   // default kid-facing entry mode stays 'trails' (see enterProfile decision
   // in src/app.js) even though MODES[0] is now 'echo'. From trails we've
   // already stepped 4 times above (-> Particles, Ripples, Geometric,
-  // Freeform), so 9 more Next steps complete the full 13-mode lap and land
+  // Freeform), so 10 more Next steps complete the full 14-mode lap and land
   // back on Finger Trails: Freeform -> Echo -> Currents -> Orbits -> Mandala
-  // -> Bloom -> Morph -> Etch -> Invert -> Finger Trails.
-  for (let i = 0; i < 9; i++) {
+  // -> Bloom -> Morph -> Etch -> Invert -> Pond -> Finger Trails.
+  for (let i = 0; i < 10; i++) {
     await page.click('#sidebar-next');
     await page.waitForTimeout(400);
   }
 
   const modeWrapped = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Modes wrap back to Finger Trails after 13 modes', modeWrapped === 'Finger Trails', modeWrapped);
+  log('Modes wrap back to Finger Trails after 14 modes', modeWrapped === 'Finger Trails', modeWrapped);
 
   // CHECK 8: Clear button exists and works
   const clearBtn = await page.$('#btn-clear');
@@ -290,4 +290,8 @@ function log(check, pass, detail) {
     results.filter(r => !r.pass).forEach(r => console.log(`  - ${r.check}: ${r.detail || ''}`));
   }
   console.log('========================================');
+  // CI gate (Spec 5): soft check failures must fail the suite's exit code —
+  // before this, only crashes were non-zero, so a red check sailed through
+  // the exit-code-gated battery as green.
+  process.exitCode = failed > 0 ? 1 : 0;
 })();

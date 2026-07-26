@@ -155,8 +155,9 @@ await check('Invert: registered, in tray, field blooms only after touch', async 
   const reg = await page.evaluate(() => window.CALM_MODES.list.includes('invert') && MODES.includes('invert'));
   if (!reg) throw new Error('invert not registered');
   await page.click('#btn-modes'); await page.waitForSelector('#mode-tray.open');
+  // AUTHORIZED REFRESH (Spec 5 F1): 14th mode (pond)
   const chips = await page.locator('#mode-options .mode-option').count();
-  if (chips !== 13) throw new Error('tray chips=' + chips);
+  if (chips !== 14) throw new Error('tray chips=' + chips);
   await page.click('#btn-modes'); // close
   await page.evaluate(() => { switchToMode(MODES.indexOf('invert'), 'test'); });
   await page.click('#btn-clear');
@@ -236,14 +237,14 @@ await check('Version stamp visible in parent and dev; matches SW cache', async (
   return appV + ' stamped (dev + parent)';
 });
 
-await check('SW v7 precaches invert.js', async () => {
+await check('SW v8 precaches invert.js', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   const wanted = ['modes/invert.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH: cache bumped v6->v7 for renewal-rain.mp3 precache
-  if (!body.includes('calm-station-v7')) throw new Error('cache not v7');
-  return 'v7 + invert.js';
+  // AUTHORIZED REFRESH: cache bumped v7->v8 for the pond.js precache (Spec 5)
+  if (!body.includes('calm-station-v8')) throw new Error('cache not v8');
+  return 'v8 + invert.js';
 });
 
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);
