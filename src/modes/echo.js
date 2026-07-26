@@ -67,9 +67,14 @@
   var SIZE_WOBBLE_HZ = 0.07;      // gentle size breathing, well under calm caps
   var SIZE_WOBBLE_AMP = 0.12;
 
-  var STAMP_DIST = 14;            // px of travel between stamps while dragging (tighter cadence)
-  var STAMP_TIME = 0.06;          // seconds between stamps while moving slowly (60ms)
-  var COLOR_CYCLE_PX = 1400;      // px of travel for one full palette cycle
+  // Stamp spacing is SIZE-RELATIVE, not a fixed pixel gap: an after-image only
+  // reads as a discrete copy of the shape if consecutive stamps are spaced on
+  // the order of the shape's own width. A fixed 14px gap against a 30-70px-wide
+  // object buried ~75% of every stamp under the next one, so a drag path read
+  // as one continuous smear of color instead of a row of distinct silhouettes.
+  var STAMP_SPACING_MUL = 1.7;    // gap between stamps, in units of the object's current radius
+  var STAMP_SPACING_MIN = 12;     // floor so the smallest sizes still stay sane
+  var COLOR_CYCLE_PX = 1000;      // px of travel for one full palette cycle
   var LUMA_WOBBLE = 0.10;         // slight luminance wobble per stamp (+-10%)
 
   var GLOW_HZ = 0.12;             // live-object glow pulse frequency (<=0.15Hz spec)
@@ -261,7 +266,6 @@
       traveled: 0,          // total px traveled (drives color walk + stamp cadence)
       lastStampX: x,
       lastStampY: y,
-      stampTimer: 0,
       age: 0,
       idleAngle: Math.random() * Math.PI * 2,
       idleTimer: 0,
@@ -359,6 +363,14 @@
     { width: 6, alpha: 0.12 }
   ];
 
+  // Consecutive stamps sample the palette only a fraction of a stop apart, so
+  // where two of them do overlap their opaque fills are near-identical color
+  // and the seam between them vanishes -- two shapes read as one blob. A thin
+  // LIGHTER-hue lip on the rim gives that seam an edge to catch, so each copy
+  // keeps its own silhouette. Lighter, never darker: this is a glow lip, not
+  // the darker outline ring the client asked to be rid of.
+  var RIM_LIP = { width: 1.5, shade: 1.22, alpha: 0.45 };
+
   // Stamp the object's current geometry onto the stamp canvas: an opaque
   // fill all the way to the path, plus a soft same-hue rim-glow that fades
   // outward -- "the colour all the way to the edge but kind of faded out a
@@ -403,6 +415,14 @@
       sctx.stroke();
     }
 
+    // Pass 3: the rim lip, last so the glow passes can't wash it out. Sits on
+    // the path itself, half of it over this stamp's own opaque fill, so it
+    // adds definition without widening the silhouette.
+    traceRingPath(sctx, pts);
+    sctx.lineWidth = RIM_LIP.width;
+    sctx.strokeStyle = rgbStr(shadeRgb(rgb, RIM_LIP.shade), RIM_LIP.alpha);
+    sctx.stroke();
+
     sctx.restore();
   }
 
@@ -420,16 +440,26 @@
     return c;
   }
 
-  function maybeStamp(state, o, dt, moved) {
-    state.stampTimer += dt;
+  // Gap the next stamp should clear, in CSS px: proportional to how big the
+  // object is actually being drawn right now (radius breathing + the kid's
+  // size slider), so "about one shape-width apart" holds at every size setting.
+  function stampSpacing(state, o) {
+    var mul = (state && state.sizeMul) || 1;
+    return Math.max(STAMP_SPACING_MIN, o.radius * mul * STAMP_SPACING_MUL);
+  }
+
+  // Purely distance-gated: a stamp lands only once the object has actually
+  // travelled clear of the last one. The old time-based trigger (every 60ms
+  // while barely moving) stacked many near-identical opaque copies on nearly
+  // the same spot, which is what turned slow drags and tight scribbles into
+  // an undifferentiated blob. Straight-line distance from the last stamp --
+  // not path length -- so circling in place can't accumulate a pile either.
+  function maybeStamp(state, o) {
     var distSince = Math.hypot(o.x - o.lastStampX, o.y - o.lastStampY);
-    var dueByDist = distSince >= STAMP_DIST;
-    var dueByTime = moved > 0.02 && state.stampTimer >= STAMP_TIME;
-    if (dueByDist || dueByTime) {
+    if (distSince >= stampSpacing(state, o)) {
       stampObject(state, o);
       o.lastStampX = o.x;
       o.lastStampY = o.y;
-      state.stampTimer = 0;
     }
   }
 
@@ -488,7 +518,6 @@
         theme: theme,
         stampCanvas: stampCanvas,
         stampCtx: stampCtx,
-        stampTimer: 0,
         dragging: false,
         sizeMul: 1, sizeRandom: false,
         live: makeObject(w * 0.4 + Math.random() * w * 0.2, h * 0.4 + Math.random() * h * 0.2)
@@ -505,7 +534,6 @@
         state.live.targetY = y;
         state.live.lastStampX = x;
         state.live.lastStampY = y;
-        state.stampTimer = 0;
         state.tapDown = true;
         state.tapMoved = false;
       } else if (kind === 'move') {
@@ -535,10 +563,10 @@
       }
 
       var o = state.live;
-      var moved = updateLiveObject(o, dt, state.dragging);
+      updateLiveObject(o, dt, state.dragging);
 
       if (state.dragging) {
-        maybeStamp(state, o, dt, moved);
+        maybeStamp(state, o);
       }
 
       // clear main canvas fully (real clear -- no veil, no fade)
