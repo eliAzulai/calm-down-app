@@ -283,4 +283,8 @@ function log(check, pass, detail) {
     results.filter(r => !r.pass).forEach(r => console.log(`  - ${r.check}: ${r.detail || ''}`));
   }
   console.log('========================================');
+  // CI gate (Spec 5): soft check failures must fail the suite's exit code —
+  // before this, only crashes were non-zero, so a red check sailed through
+  // the exit-code-gated battery as green.
+  process.exitCode = failed > 0 ? 1 : 0;
 })();
