@@ -549,6 +549,65 @@ html, body {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* --- Quick sidebar (Spec 4 F2): bottom-left pull-out (erase / prev / next) ---
+   Own corner (bottom-left), independent of the top-right button cluster and
+   its trays, but shares their exclusivity group via closeOtherPanels. */
+.quick-sidebar {
+  position: absolute;
+  left: calc(var(--space-lg) + env(safe-area-inset-left, 0));
+  bottom: calc(var(--space-lg) + env(safe-area-inset-bottom, 0));
+  display: flex;
+  flex-direction: column-reverse; /* tab stays at the bottom, actions rise above it */
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.quick-sidebar button {
+  pointer-events: auto;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: rgba(21, 32, 48, 0.7);
+  color: var(--text-mid);
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background var(--transition-fast), opacity var(--transition-normal), transform var(--transition-normal);
+}
+
+.quick-sidebar button:active {
+  transform: scale(0.93);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#sidebar-tab { opacity: 0.45; } /* collapsed tab stays quiet */
+
+.quick-sidebar.open #sidebar-tab {
+  opacity: 1;
+  background: var(--accent-dim);
+}
+
+.quick-sidebar .sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+}
+
+.quick-sidebar.open .sidebar-actions {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
 /* --- Sound Button & Panel --- */
 #btn-sound {
   right: calc(var(--space-lg) + 56px + env(safe-area-inset-right, 0));
@@ -1643,6 +1702,14 @@ html, body {
 
 .dev-header h2 {
   font-size: 1.75rem;
+}
+
+/* Shared by #dev-version (dev-header) and #parent-version (parent-body
+   footer) — the visible build stamp, kept equal to sw.js CACHE_NAME. */
+.app-version {
+  display: block;
+  opacity: 0.5;
+  font-size: 0.75rem;
 }
 
 #dev-back,

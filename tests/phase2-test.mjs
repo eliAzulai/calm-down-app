@@ -94,14 +94,23 @@ function log(check, pass, detail) {
   // Screenshot trails mode
   await page.screenshot({ path: 'tests/screenshots/phase2-trails.png' });
 
-  // CHECK 4: Double-tap to cycle modes
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(100);
-  await page.mouse.click(400, 500);
+  // AUTHORIZED REFRESH (Spec 4 F3): double-tap cycling removed; the sidebar's
+  // Next button is now the sequential mode-step surface. Same assertions.
+  await page.click('#sidebar-tab');
+  await page.waitForSelector('#quick-sidebar.open');
+
+  // CHECK 4: Sidebar Next steps to the next mode
+  // NOTE ON OVERLAP: the sidebar lives bottom-left (~24-100px from the
+  // left/bottom edges at this viewport); none of the pixel-sampling checks
+  // below click or verify at coordinates near it (384,512 and 400,500 are
+  // both mid-canvas), and the pixel checks themselves sample the canvas
+  // element's own bitmap via getImageData — DOM chrome on top doesn't touch
+  // that data — so no sidebar-open/close juggling is needed around them.
+  await page.click('#sidebar-next');
   await page.waitForTimeout(400);
 
   const modeAfterDT = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Double-tap cycles to Particles', modeAfterDT === 'Particles', modeAfterDT);
+  log('Sidebar next steps to Particles', modeAfterDT === 'Particles', modeAfterDT);
 
   // CHECK 5: Particles mode — touch spawns particles
   await page.mouse.click(384, 512);
@@ -121,14 +130,12 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase2-particles.png' });
 
-  // CHECK 6: Double-tap again → Ripples
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(100);
-  await page.mouse.click(400, 500);
+  // CHECK 6: Sidebar Next again → Ripples
+  await page.click('#sidebar-next');
   await page.waitForTimeout(400);
 
   const modeRipples = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Double-tap cycles to Ripples', modeRipples === 'Ripples', modeRipples);
+  log('Sidebar next steps to Ripples', modeRipples === 'Ripples', modeRipples);
 
   // Tap for ripples
   await page.mouse.click(384, 512);
@@ -136,40 +143,34 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase2-ripples.png' });
 
-  // CHECK 7: Double-tap continues through full current mode set
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(100);
-  await page.mouse.click(400, 500);
+  // CHECK 7: Sidebar Next continues through full current mode set
+  await page.click('#sidebar-next');
   await page.waitForTimeout(400);
 
   const modeGeometric = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Double-tap cycles to Geometric', modeGeometric === 'Geometric', modeGeometric);
+  log('Sidebar next steps to Geometric', modeGeometric === 'Geometric', modeGeometric);
 
-  await page.mouse.click(400, 500);
-  await page.waitForTimeout(100);
-  await page.mouse.click(400, 500);
+  await page.click('#sidebar-next');
   await page.waitForTimeout(400);
 
   const modeDrawing = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Double-tap cycles to Freeform', modeDrawing === 'Freeform', modeDrawing);
+  log('Sidebar next steps to Freeform', modeDrawing === 'Freeform', modeDrawing);
 
-  // AUTHORIZED REFRESH (Task A2): the ring grew from 5 legacy modes to 12
-  // (7 registry modes + the original 5), and the default kid-facing entry
-  // mode stays 'trails' (see enterProfile decision in src/app.js) even
-  // though MODES[0] is now 'echo'. From trails we've already double-tapped
-  // 4 times above (-> Particles, Ripples, Geometric, Freeform), so 8 more
-  // taps complete the full 12-mode lap and land back on Finger Trails:
-  // Freeform -> Echo -> Currents -> Orbits -> Mandala -> Bloom -> Morph ->
-  // Etch -> Finger Trails.
-  for (let i = 0; i < 8; i++) {
-    await page.mouse.click(400, 500);
-    await page.waitForTimeout(100);
-    await page.mouse.click(400, 500);
+  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode. The ring grew from 12 modes
+  // to 13 (7 registry modes + invert + the original 5 legacy), and the
+  // default kid-facing entry mode stays 'trails' (see enterProfile decision
+  // in src/app.js) even though MODES[0] is now 'echo'. From trails we've
+  // already stepped 4 times above (-> Particles, Ripples, Geometric,
+  // Freeform), so 9 more Next steps complete the full 13-mode lap and land
+  // back on Finger Trails: Freeform -> Echo -> Currents -> Orbits -> Mandala
+  // -> Bloom -> Morph -> Etch -> Invert -> Finger Trails.
+  for (let i = 0; i < 9; i++) {
+    await page.click('#sidebar-next');
     await page.waitForTimeout(400);
   }
 
   const modeWrapped = await page.$eval('#mode-indicator', el => el.textContent);
-  log('Modes wrap back to Finger Trails after 12 modes', modeWrapped === 'Finger Trails', modeWrapped);
+  log('Modes wrap back to Finger Trails after 13 modes', modeWrapped === 'Finger Trails', modeWrapped);
 
   // CHECK 8: Clear button exists and works
   const clearBtn = await page.$('#btn-clear');

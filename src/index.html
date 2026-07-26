@@ -109,6 +109,15 @@
       <div class="ctlrow" id="style-empty" style="display:none">This mode paints its own colours.</div>
     </div>
     <div id="mode-indicator" class="mode-indicator" aria-live="polite"></div>
+    <!-- Quick Sidebar (Spec 4 F2): bottom-left pull-out erase/prev/next -->
+    <div id="quick-sidebar" class="quick-sidebar">
+      <button id="sidebar-tab" aria-label="Quick controls" aria-expanded="false">⋯</button>
+      <div class="sidebar-actions">
+        <button id="sidebar-erase" aria-label="Erase canvas">✕</button>
+        <button id="sidebar-prev" aria-label="Previous mode">‹</button>
+        <button id="sidebar-next" aria-label="Next mode">›</button>
+      </div>
+    </div>
     <!-- Gentle Prompt Orb -->
     <div id="gentle-orb" class="gentle-orb" role="button" aria-label="Try a calming exercise"></div>
     <!-- Prompt Choice (Breathe / Ground) -->
@@ -213,6 +222,7 @@
     <div id="parent-profiles" class="parent-section">
       <!-- JS renders per-kid data here -->
     </div>
+    <p id="parent-version" class="app-version"></p>
   </div>
 </div>
 
@@ -222,6 +232,7 @@
       <div>
         <p class="dev-eyebrow">Developer Mode</p>
         <h2>Preference Signals</h2>
+        <span id="dev-version" class="app-version"></span>
       </div>
       <button id="dev-back" aria-label="Back to profiles">Back</button>
     </header>
@@ -261,6 +272,7 @@
 <script src="modes/morph.js"></script>
 <script src="modes/echo.js"></script>
 <script src="modes/etch.js"></script>
+<script src="modes/invert.js"></script>
 <script src="app.js"></script>
 <script>
 // Service Worker Registration

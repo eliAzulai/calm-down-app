@@ -354,6 +354,8 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     this.activeBloom = null;
     this.idleTimer = 0;
     this.idleBloomSpawned = false;
+    // calm start: idle self-bloom only after the kid's first touch (Spec 4 F1)
+    this.hasTouched = false;
     this.dpr = 1;
     this.glow = getGlowSprite();
     // ---- smart controls state ----
@@ -479,6 +481,7 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
   function pointer(state, x, y, kind) {
     if (kind === 'down') {
       state.idleTimer = 0;
+      state.hasTouched = true;
 
       // If tapping near an existing (non-dissolving) bloom, grab it for hold
       // interaction instead of always spawning a new one.
@@ -751,7 +754,7 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     // idle spontaneous bloom: if empty for >5s, spawn one faint self-growing bloom
     if (state.blooms.length === 0) {
       state.idleTimer += dt;
-      if (state.idleTimer > 5 && !state.idleBloomSpawned) {
+      if (state.hasTouched && state.idleTimer > 5 && !state.idleBloomSpawned) {
         var ox = w * (0.32 + Math.random() * 0.36);
         var oy = h * (0.30 + Math.random() * 0.40);
         var fb = makeBloom(ox, oy, (Math.random() < 0.5 ? 1 : -1), 0, computeSeedTarget(state), nextFamily(state), null, state.moodId);

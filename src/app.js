@@ -23,6 +23,8 @@ const ICONS = [
 const MAX_PROFILES = 2;
 const STORAGE_KEY = 'calm-station-profiles';
 
+window.APP_VERSION = 'v6'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
+
 // --- SVG Icon Renderer ---
 
 function getIconSVG(iconId, color, size) {
@@ -643,18 +645,19 @@ function saveNewProfile() {
 
 // --- Canvas Visual Modes ---
 
-const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch',
+// AUTHORIZED REFRESH (Spec 4 B4): 13th mode
+const MODES = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch', 'invert',
                'trails', 'particles', 'ripples', 'geometric', 'drawing'];
 const MODE_LABELS = {
   echo: 'Echo', currents: 'Currents', orbits: 'Orbits', mandala: 'Mandala',
-  bloom: 'Bloom', morph: 'Morph', etch: 'Etch',
+  bloom: 'Bloom', morph: 'Morph', etch: 'Etch', invert: 'Invert',
   trails: 'Finger Trails', particles: 'Particles', ripples: 'Ripples',
   geometric: 'Geometric', drawing: 'Freeform',
 };
-// The five modes with a "trace" (fades vs stays) concept — echo/etch are
+// The modes with a "trace" (fades vs stays) concept — echo/etch are
 // exempt because persistence IS their identity (nothing to toggle), and
 // legacy modes have no registry controls at all.
-const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph'];
+const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph', 'invert'];
 
 // --- Screen Navigation ---
 
@@ -667,7 +670,7 @@ function enterProfile(profile) {
   // though MODES[0] is now 'echo' (registry modes lead the ring so tray/tests
   // treat them as first-class). Without a dev-set default, fall back to
   // trails explicitly rather than index 0, preserving what kids see today;
-  // the new registry modes are reachable via double-tap cycling or the mode
+  // the new registry modes are reachable via the quick sidebar or the mode
   // tray. Revisit once the observation cycle (Task A-later) has data.
   state.canvasMode = defaultModeIndex >= 0 ? defaultModeIndex : MODES.indexOf('trails');
 
@@ -707,6 +710,7 @@ function backToProfiles() {
   stopSoundOnExit();
   closeModeTray(); // same exit hygiene stopSoundOnExit gives the sound panel
   closeStyleTray(); // same exit hygiene, third panel (Task A4)
+  closeQuickSidebar(); // same exit hygiene, quick sidebar (Spec 4 F2)
   stopGentlePromptTimer();
   closeBreatheOverlay();
   closeGroundOverlay();
@@ -1230,10 +1234,6 @@ function renderDrawing(ctx) {
 
 // --- Touch / Pointer Events ---
 
-var lastTapTime = 0;
-var lastTapX = 0;
-var lastTapY = 0;
-
 $mainCanvas.addEventListener('pointerdown', function(e) {
   if (sfx.active && !audio.ctx) ensureAudioContext();
   e.preventDefault();
@@ -1251,20 +1251,6 @@ $mainCanvas.addEventListener('pointerdown', function(e) {
   if (!isRegistryMode(mode) && mode === 'particles') spawnParticles(x, y, 8);
   if (!isRegistryMode(mode) && mode === 'ripples') addRipple(x, y);
   if (!isRegistryMode(mode) && mode === 'geometric') addShape(x, y);
-
-  // Double-tap detection
-  var now = Date.now();
-  var dx = x - lastTapX;
-  var dy = y - lastTapY;
-  var dist = Math.sqrt(dx * dx + dy * dy);
-  if (now - lastTapTime < 350 && dist < 50) {
-    cycleMode();
-    lastTapTime = 0;
-  } else {
-    lastTapTime = now;
-    lastTapX = x;
-    lastTapY = y;
-  }
 
   // Pinch detection — if 2 pointers, start pinch
   var touchKeys = Object.keys(canvas.touches);
@@ -1322,11 +1308,14 @@ $mainCanvas.addEventListener('pointercancel', function(e) {
 
 // --- Mode Cycling ---
 
-// Shared by double-tap cycling AND the mode tray so both entry points wipe
-// state and record signals identically. `via` is 'doubletap' or 'tray' —
+// Shared by the mode tray AND the quick sidebar so both entry points wipe
+// state and record signals identically. `via` is 'tray' or 'sidebar' —
 // recorded on the additive mode_select signal only; recordModeChange's own
 // mode_end/mode_cycle/mode_start + signalSession.mode bookkeeping (the data
 // the observation cycle depends on) runs exactly the same either way.
+// (Double-tap cycling was retired in Spec 4 B3 — the sidebar's prev/next
+// buttons are the deliberate replacement; kids were triggering mode changes
+// by accident.)
 function switchToMode(index, via) {
   var previousMode = MODES[state.canvasMode];
   state.canvasMode = index;
@@ -1351,13 +1340,9 @@ function switchToMode(index, via) {
   clearCanvasFull();
   showModeIndicator();
   // Style tray reflects the ACTIVE mode's controls — if it's open while the
-  // kid switches modes (tray or double-tap), keep it in sync rather than
+  // kid switches modes (tray or sidebar), keep it in sync rather than
   // showing the stale previous mode's swatches/chips.
   if (typeof styleTrayOpen !== 'undefined' && styleTrayOpen) renderStyleTray();
-}
-
-function cycleMode() {
-  switchToMode((state.canvasMode + 1) % MODES.length, 'doubletap');
 }
 
 function showModeIndicator() {
@@ -1412,7 +1397,9 @@ function flushTouchSignals() {
 
 // --- Clear Button ---
 
-$btnClear.addEventListener('click', function() {
+// Named so the quick sidebar's erase button (Spec 4 F2) can call the exact
+// same handler instead of duplicating clear logic.
+function handleClearCanvas() {
   recordSignal('clear_canvas', { mode: MODES[state.canvasMode] });
   canvas.trails = [];
   canvas.particles = [];
@@ -1420,7 +1407,9 @@ $btnClear.addEventListener('click', function() {
   canvas.shapes = [];
   canvas.drawPaths = [];
   clearCanvasFull();
-});
+}
+
+$btnClear.addEventListener('click', handleClearCanvas);
 
 function clearCanvasFull() {
   if (!canvas.ctx) return;
@@ -3082,6 +3071,7 @@ function closeOtherPanels(except) {
   }
   if (except !== 'modes') closeModeTray();
   if (except !== 'style') closeStyleTray();
+  if (except !== 'sidebar') closeQuickSidebar();
 }
 
 // --- Sound Panel Toggle ---
@@ -3224,16 +3214,23 @@ function renderStyleTray() {
       var nm = document.createElement('span'); nm.className = 'swname'; nm.textContent = mo.name; b.appendChild(nm);
       $m.appendChild(b);
     });
-    $c.style.display = 'flex';
-    var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
-    lbl2.textContent = (V.controls.character && V.controls.character.label) || 'Style';
-    $c.appendChild(lbl2);
-    (V.controls.character ? V.controls.character.options : []).forEach(function (o, i) {
-      var b = document.createElement('button');
-      b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
-      b.dataset.id = o.id; b.textContent = o.name;
-      $c.appendChild(b);
-    });
+    // AUTHORIZED REFRESH (Spec 4 B4 review): a registry mode can have
+    // controls.moods without controls.character (invert is the first). Hide
+    // the row instead of rendering an empty labeled "Style" row for kids.
+    if (V.controls.character && V.controls.character.options) {
+      $c.style.display = 'flex';
+      var lbl2 = document.createElement('span'); lbl2.className = 'ctl-label';
+      lbl2.textContent = V.controls.character.label || 'Style';
+      $c.appendChild(lbl2);
+      V.controls.character.options.forEach(function (o, i) {
+        var b = document.createElement('button');
+        b.className = 'chip' + ((saved.character ? saved.character === o.id : i === 0) ? ' on' : '');
+        b.dataset.id = o.id; b.textContent = o.name;
+        $c.appendChild(b);
+      });
+    } else {
+      $c.style.display = 'none';
+    }
   }
 
   // ---- Size row (Task A5): works for ALL registry modes, incl. etch ----
@@ -3378,6 +3375,56 @@ function handleStyleControlClick(e, kind) {
 $styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });
 $styleChars.addEventListener('click', function (e) { handleStyleControlClick(e, 'character'); });
 $styleTrace.addEventListener('click', function (e) { handleStyleControlClick(e, 'trace'); });
+
+// --- Quick Sidebar (Spec 4 F2): bottom-left pull-out erase/prev/next ---
+//
+// Kid-facing, no dev gate. Mirrors the mode tray / style tray idioms exactly:
+// a toggle button, an exclusivity call through closeOtherPanels, and a
+// document-level outside-click closer that ignores clicks inside the panel
+// or on its own toggle so repeated taps on erase/prev/next keep it open.
+
+var $quickSidebar = document.getElementById('quick-sidebar');
+var $sidebarTab = document.getElementById('sidebar-tab');
+var $sidebarErase = document.getElementById('sidebar-erase');
+var $sidebarPrev = document.getElementById('sidebar-prev');
+var $sidebarNext = document.getElementById('sidebar-next');
+var quickSidebarOpen = false;
+
+// Hoisted so closeOtherPanels (defined earlier) can call it.
+function closeQuickSidebar() {
+  quickSidebarOpen = false;
+  $quickSidebar.classList.remove('open');
+  $sidebarTab.setAttribute('aria-expanded', 'false');
+}
+
+$sidebarTab.addEventListener('click', function (e) {
+  e.stopPropagation();
+  quickSidebarOpen = !quickSidebarOpen;
+  $quickSidebar.classList.toggle('open', quickSidebarOpen);
+  $sidebarTab.setAttribute('aria-expanded', String(quickSidebarOpen));
+  if (quickSidebarOpen) closeOtherPanels('sidebar');
+  if (quickSidebarOpen) recordSignal('sidebar_open', {}); // mirrors sound_panel_open — fires only on open
+});
+
+// Close sidebar on outside click
+document.addEventListener('click', function (e) {
+  if (quickSidebarOpen && !$quickSidebar.contains(e.target)) {
+    closeQuickSidebar();
+  }
+});
+
+$sidebarErase.addEventListener('click', function (e) {
+  e.stopPropagation();
+  handleClearCanvas();
+});
+
+function sidebarStep(delta) {
+  var next = (state.canvasMode + delta + MODES.length) % MODES.length;
+  switchToMode(next, 'sidebar'); // switchToMode already records mode_select with the via value
+}
+
+$sidebarPrev.addEventListener('click', function (e) { e.stopPropagation(); sidebarStep(-1); });
+$sidebarNext.addEventListener('click', function (e) { e.stopPropagation(); sidebarStep(1); });
 
 // Play/pause
 $btnPlayPause.addEventListener('click', togglePlayPause);
@@ -3592,6 +3639,7 @@ function hexToRGB(hex) {
 var $screenParent = document.getElementById('screen-parent');
 var $parentBack = document.getElementById('parent-back');
 var $parentProfiles = document.getElementById('parent-profiles');
+var $parentVersion = document.getElementById('parent-version');
 var $telegramUrl = document.getElementById('telegram-url');
 var $telegramSave = document.getElementById('telegram-save');
 var $telegramTest = document.getElementById('telegram-test');
@@ -3605,6 +3653,15 @@ var $devExport = document.getElementById('dev-export');
 var $devReset = document.getElementById('dev-reset');
 var $devSaveControls = document.getElementById('dev-save-controls');
 var $devStatus = document.getElementById('dev-status');
+var $devVersion = document.getElementById('dev-version');
+
+// Version stamp is static for the life of the page — set it once at load so
+// it's readable even if the dev/parent dashboards are never opened (the
+// screens stay in the DOM regardless of .active), not gated behind their
+// render functions (which also refresh it, redundantly but harmlessly, each
+// time those dashboards open).
+if ($devVersion) $devVersion.textContent = 'Calm Station ' + window.APP_VERSION;
+if ($parentVersion) $parentVersion.textContent = 'Calm Station ' + window.APP_VERSION;
 
 setActiveScreenAccessibility($screenProfiles);
 
@@ -3709,6 +3766,7 @@ function closeDevDashboard() {
 }
 
 function renderDevDashboard() {
+  if ($devVersion) $devVersion.textContent = 'Calm Station ' + window.APP_VERSION;
   renderDevProfiles();
   renderDevControls();
   renderDevEvents();
@@ -4082,6 +4140,7 @@ function getProfileSessions(profileId) {
 }
 
 function renderParentDashboard() {
+  if ($parentVersion) $parentVersion.textContent = 'Calm Station ' + window.APP_VERSION;
   $parentProfiles.textContent = '';
 
   if (state.profiles.length === 0) {

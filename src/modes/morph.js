@@ -320,18 +320,16 @@
         activeMoodId: DEFAULT_MOOD,
         activeShapeSetId: DEFAULT_SHAPE_SET,
         sizeMul: 1, sizeRandom: false,
-        traceMode: 'fades' // kid-facing trace control: 'fades' (default) | 'stays'
+        traceMode: 'fades', // kid-facing trace control: 'fades' (default) | 'stays'
+        // calm start: idle ambient shape only after the kid's first touch (Spec 4 F1)
+        hasTouched: false
       };
-      // seed idle ambient shape immediately so canvas feels alive pre-touch
-      st.idleShape = makeShape(w * 0.3 + Math.random() * w * 0.4, h * 0.3 + Math.random() * h * 0.4, (70 + Math.random() * 30) * sizeFactor(st), false, st.activeShapeSetId, st.activeMoodId); // size control (kid slider)
-      st.idleShape.isIdle = true;
-      st.idleShape.driftVX = (Math.random() * 2 - 1) * 6; // px/s, very slow drift
-      st.idleShape.driftVY = (Math.random() * 2 - 1) * 6;
       return st;
     },
 
     pointer: function (state, x, y, kind) {
       if (kind === 'down') {
+        state.hasTouched = true;
         if (state.shapes.length >= MAX_SHAPES) {
           // remove oldest to make room
           state.shapes.shift();
@@ -428,7 +426,7 @@
         }
       } else {
         state.idleTimer += dt;
-        if (state.idleTimer >= state.idleSpawnDelay) {
+        if (state.hasTouched && state.idleTimer >= state.idleSpawnDelay) {
           var nx = state.w * (0.2 + Math.random() * 0.6);
           var ny = state.h * (0.2 + Math.random() * 0.6);
           var ns = makeShape(nx, ny, (60 + Math.random() * 40) * sizeFactor(state), false, state.activeShapeSetId, state.activeMoodId); // size control (kid slider)

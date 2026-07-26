@@ -30,31 +30,41 @@ await page.goto(BASE);
 await page.click('.profile-card.filled');
 await page.waitForSelector('#screen-canvas.active');
 
-await check('Registry exposes 7 modes, echo first', async () => {
+await check('Registry exposes 8 modes, echo first', async () => {
+  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode. invert is a registry mode
+  // (window.VARIANTS + registry.js ORDER), so the registry list grew from
+  // 7 to 8. Not one of the plan's called-out "12-mode" literals — found via
+  // grep for registry-list-length assertions while auditing the refresh.
   const list = await page.evaluate(() => window.CALM_MODES && window.CALM_MODES.list);
-  if (!list || list.length !== 7) throw new Error('list=' + JSON.stringify(list));
+  if (!list || list.length !== 8) throw new Error('list=' + JSON.stringify(list));
   if (list[0] !== 'echo') throw new Error('echo not first: ' + list[0]);
   return list.join(',');
 });
 
-await check('SW precaches mode files at v5', async () => {
+await check('SW precaches mode files at v6', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
-  const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js'];
+  const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js','modes/invert.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  if (!body.includes('calm-station-v5')) throw new Error('cache not v5');
-  return 'v5 + 8 files';
+  // AUTHORIZED REFRESH (Spec 4 B5): cache bumped v5->v6 for invert.js precache
+  if (!body.includes('calm-station-v6')) throw new Error('cache not v6');
+  return 'v6 + 9 files';
 });
 
-await check('New modes render pixels via double-tap cycling', async () => {
-  // ADAPTATION: the plan's dblclick target (box.x+60, box.y+60) lands inside
-  // #btn-back (rect x:24 y:24 w:48 h:48 -> covers 24-72 on both axes at this
-  // viewport), so those events never reach #main-canvas at all. Verified via
-  // elementFromPoint(60,60) === #btn-back in a throwaway probe. Reusing the
-  // same (200,300) point the drag already uses is inside the canvas with no
-  // chrome overlap (confirmed via elementFromPoint(200,300) === #main-canvas)
-  // and doesn't fight the drag, since the double-tap always runs AFTER the
-  // drag/up for that same mode has completed.
+await check('New modes render pixels via sidebar-next cycling', async () => {
+  // AUTHORIZED REFRESH (Spec 4 B3): double-tap cycling removed; the sidebar's
+  // Next button replaces it as the sequential mode-step surface. Open the
+  // sidebar once, up front — it stays open across repeated Next taps (B2
+  // guaranteed this) so it doesn't need reopening each iteration.
+  // OVERLAP CHECK: the pixel sampling below reads the canvas element's own
+  // bitmap via getImageData — DOM chrome sitting on top of it (the open
+  // sidebar) never touches that data. The drag strokes run from (200,300)
+  // out to (200+7*30, 300+7*12) = (410,384), and the sidebar occupies only
+  // the bottom-left corner (~24-100px from the left/bottom edges at this
+  // 768x1024 viewport) — well clear of that stroke path.
+  await page.click('#sidebar-tab');
+  await page.waitForSelector('#quick-sidebar.open');
+
   const results = {};
   for (let i = 0; i < 12; i++) {
     const mode = await page.evaluate(() => MODES[state.canvasMode]);
@@ -78,7 +88,7 @@ await check('New modes render pixels via double-tap cycling', async () => {
       await page.waitForTimeout(150);
     }
     results[mode] = lit;
-    await page.mouse.dblclick(box.x + 200, box.y + 300);
+    await page.click('#sidebar-next');
     await page.waitForTimeout(350);
   }
   const dead = Object.entries(results).filter(([, n]) => n < 3).map(([m]) => m);
@@ -86,12 +96,13 @@ await check('New modes render pixels via double-tap cycling', async () => {
   return Object.keys(results).length + ' modes alive';
 });
 
-await check('Mode tray opens and lists 12 modes', async () => {
+await check('Mode tray opens and lists 13 modes', async () => {
+  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode
   await page.click('#btn-modes');
   await page.waitForSelector('#mode-tray.open');
   const n = await page.locator('#mode-options .mode-option').count();
-  if (n !== 12) throw new Error('modes=' + n);
-  return '12 chips';
+  if (n !== 13) throw new Error('modes=' + n);
+  return '13 chips';
 });
 
 await check('Tray selects a mode and records signal', async () => {
@@ -252,6 +263,19 @@ await check('Size slider UI persists and applies via tray', async () => {
 });
 
 await check('Trace=stays persists mandala sparks; fades drains them', async () => {
+  // Pre-existing test bug (surfaced by Spec 4 calm-start): the prior check
+  // ("Size slider UI persists...") leaves the style tray open, and it covers
+  // (300,300) with a real chip button (confirmed via elementFromPoint) --
+  // so the mousedown below used to land on tray chrome, never reaching
+  // #main-canvas at all. This was invisible pre-calm-start only because
+  // mandala's old idle() self-spawned an ambient spark on its very first
+  // frame regardless of touch (exactly the bug calm start fixes), so
+  // `sparks.length` was already 1 before the phantom click. Now that idle
+  // spawn is gated on state.hasTouched, the phantom click produces nothing.
+  // Close the tray first, matching the same guard the orbits check below
+  // already uses for the identical leftover-tray-chrome hazard.
+  const trayWasOpenForTrace = await page.evaluate(() => document.getElementById('style-tray').classList.contains('open'));
+  if (trayWasOpenForTrace) { await page.click('#btn-style'); await page.waitForTimeout(200); }
   await page.evaluate(() => { switchToMode(MODES.indexOf('mandala'), 'tray'); });
   await page.waitForTimeout(300);
   await page.evaluate(() => window.CALM_MODES.get('mandala').applyControl(canvas.regState, 'trace', 'stays'));
@@ -279,7 +303,7 @@ await check('Trace=stays persists mandala sparks; fades drains them', async () =
   return `stays=${litStays} fades=${litFades}`;
 });
 
-await check('Trace chip renders for the five, hidden for echo/etch, persists', async () => {
+await check('Trace chip renders for trace modes, hidden for echo/etch, persists', async () => {
   await page.click('#btn-style'); await page.waitForSelector('#style-tray.open');
   let traceChips = await page.locator('#style-trace .chip').count();
   if (traceChips !== 2) throw new Error('mandala trace chips=' + traceChips);

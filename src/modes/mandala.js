@@ -265,7 +265,9 @@
       fold: defaultSymmetry.fold,
       maxSparks: defaultSymmetry.maxSparks,
       sizeMul: 1, sizeRandom: false,
-      traceMode: 'fades'
+      traceMode: 'fades',
+      // calm start: idle ambient sparks only after the kid's first touch (Spec 4 F1)
+      hasTouched: false
     };
     buildBgSprite(state);
     return state;
@@ -311,6 +313,7 @@
 
   function pointer(state, x, y, kind) {
     if (kind === 'down') {
+      state.hasTouched = true;
       state.pointerDown = true;
       state.holdT = 0;
       state.holdSpiral = 0;
@@ -344,6 +347,7 @@
   // ---- idle ambience -------------------------------------------------------
 
   function idle(state, w, h, dt) {
+    if (!state.hasTouched) return; // calm start: no ambient sparks before first touch (Spec 4 F1)
     state.idleT += dt;
     // maintain 2-3 slow autonomous orbiting sparks; spawn lazily, very sparse.
     var target = 3;

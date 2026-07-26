@@ -219,9 +219,11 @@
       // ---- kid-facing smart controls: size ----
       sizeMul: 1, sizeRandom: false,
       // ---- kid-facing smart controls: trace ----
-      traceMode: 'fades'
+      traceMode: 'fades',
+      // calm start: motes + ambient particle trickle only after the kid's
+      // first touch (Spec 4 F1)
+      hasTouched: false
     };
-    for (var i = 0; i < MAX_MOTES; i++) state.motes.push(makeMote(w, h, state.liveMoodRgb));
     buildBgCache(state);
     return state;
   }
@@ -256,6 +258,7 @@
 
   function pointer(state, x, y, kind) {
     if (kind === 'down') {
+      state.hasTouched = true;
       state.touch.active = true;
       state.touch.x = x;
       state.touch.y = y;
@@ -354,7 +357,8 @@
     }
 
     // sparse ambient spawn to keep river alive without ever feeling busy
-    if (state.particles.length < 60 && Math.random() < dt * 3) {
+    // calm start: gated on hasTouched (Spec 4 F1) -- no ambient spawn pre-touch
+    if (state.hasTouched && state.particles.length < 60 && Math.random() < dt * 3) {
       state.particles.push(makeParticle(w, h, undefined, undefined, state.liveMoodRgb, sizeFactor(state))); // size control (kid slider)
     }
 
@@ -497,6 +501,13 @@
   // trickle of full river particles continues when nobody is interacting, so
   // the rivers themselves stay gently visible, not just motes.
   function idle(state, w, h, dt) {
+    if (!state.hasTouched) return; // calm start: no ambient motes/particles before first touch (Spec 4 F1)
+    // motes are populated once, lazily, on the first idle tick after touch
+    // (moved out of init() so nothing self-generates pre-touch); already-alive
+    // motes then flow forever per makeMote's own never-die design.
+    if (state.motes.length === 0) {
+      for (var i = 0; i < MAX_MOTES; i++) state.motes.push(makeMote(state.w, state.h, state.liveMoodRgb));
+    }
     if (state.particles.length < 90 && Math.random() < dt * 1.2) {
       state.particles.push(makeParticle(w, h, undefined, undefined, state.liveMoodRgb, sizeFactor(state))); // size control (kid slider)
       thin(state);
