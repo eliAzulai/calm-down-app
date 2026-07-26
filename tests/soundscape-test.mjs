@@ -64,9 +64,10 @@ await page.waitForSelector('#screen-canvas.active');
 await page.click('#btn-sound');
 await page.waitForSelector('#sound-panel.open');
 
-await check('Music row renders 3 tracks', async () => {
+// AUTHORIZED REFRESH: 4th track (Renewal Rain) added to MUSIC_TRACKS
+await check('Music row renders 4 tracks', async () => {
   const n = await page.locator('#music-options .sound-option').count();
-  if (n !== 3) throw new Error(`expected 3, got ${n}`);
+  if (n !== 4) throw new Error(`expected 4, got ${n}`);
   return `${n} tracks`;
 });
 
@@ -274,12 +275,13 @@ await check('SW precaches audio assets', async () => {
   const res = await page.request.get(`${BASE}/sw.js`);
   const body = await res.text();
   const wanted = ['audio/music/bowls.mp3', 'audio/music/tides.mp3', 'audio/music/forest-rain.mp3',
+    'audio/music/renewal-rain.mp3',
     'audio/sfx/chime.mp3', 'audio/sfx/drop.mp3', 'audio/sfx/bird.mp3', 'audio/sfx/bowl.mp3', 'audio/sfx/breeze.mp3'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH (Spec 4 B5): cache bumped v5->v6 for invert.js precache
-  if (!body.includes('calm-station-v6')) throw new Error('cache name not bumped');
-  return 'v6 + 8 audio assets';
+  // AUTHORIZED REFRESH: cache bumped v6->v7 for renewal-rain.mp3 precache
+  if (!body.includes('calm-station-v7')) throw new Error('cache name not bumped');
+  return 'v7 + 9 audio assets';
 });
 
 await check('SW cache actually contains audio (real Cache Storage)', async () => {

@@ -35,13 +35,22 @@ jobs:
           curl -s --retry 20 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:8080
           echo "server up"
 
-      - name: Run full test battery (11 suites)
+      - name: Run full test battery (every tests/*-test.mjs)
+        # Discovered by glob, not enumerated: the old hardcoded list silently
+        # dropped phase11 (invert mode) out of the gate for two PRs. A new
+        # suite is now gating the moment the file lands. Each suite is its own
+        # node process + browser, so run order doesn't matter (state coupling
+        # is within a file, by design — see soundscape-test.mjs header).
         run: |
+          shopt -s nullglob
+          tests=(tests/*-test.mjs)
+          if [ ${#tests[@]} -eq 0 ]; then
+            echo "::error::no test suites matched tests/*-test.mjs — the gate is empty"
+            exit 1
+          fi
+          echo "discovered ${#tests[@]} suites: ${tests[*]}"
           fail=0
-          for t in tests/phase1-test.mjs tests/phase2-test.mjs tests/phase3-test.mjs \
-                   tests/phase4-test.mjs tests/phase5-test.mjs tests/phase6-test.mjs \
-                   tests/phase7-test.mjs tests/phase8-test.mjs tests/phase9-test.mjs \
-                   tests/soundscape-test.mjs tests/phase10-test.mjs; do
+          for t in "${tests[@]}"; do
             echo "::group::$t"
             if ! node "$t"; then
               echo "::error::$t FAILED"

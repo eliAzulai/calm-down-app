@@ -41,14 +41,14 @@ await check('Registry exposes 8 modes, echo first', async () => {
   return list.join(',');
 });
 
-await check('SW precaches mode files at v6', async () => {
+await check('SW precaches mode files at v7', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js','modes/invert.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH (Spec 4 B5): cache bumped v5->v6 for invert.js precache
-  if (!body.includes('calm-station-v6')) throw new Error('cache not v6');
-  return 'v6 + 9 files';
+  // AUTHORIZED REFRESH: cache bumped v6->v7 for renewal-rain.mp3 precache
+  if (!body.includes('calm-station-v7')) throw new Error('cache not v7');
+  return 'v7 + 9 files';
 });
 
 await check('New modes render pixels via sidebar-next cycling', async () => {

@@ -23,7 +23,7 @@ const ICONS = [
 const MAX_PROFILES = 2;
 const STORAGE_KEY = 'calm-station-profiles';
 
-window.APP_VERSION = 'v6'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
+window.APP_VERSION = 'v7'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
 
 // --- SVG Icon Renderer ---
 
@@ -2062,6 +2062,7 @@ var MUSIC_TRACKS = [
   { id: 'bowls',      name: 'Bowls',       file: 'audio/music/bowls.mp3' },
   { id: 'tides',      name: 'Tides',       file: 'audio/music/tides.mp3' },
   { id: 'forestrain', name: 'Forest Rain', file: 'audio/music/forest-rain.mp3' },
+  { id: 'renewalrain', name: 'Renewal Rain', file: 'audio/music/renewal-rain.mp3' },
 ];
 var LOOP_EDGE_S = 0.15; // runtime loop points trim encoder padding
 // Rain droplet pitches: A-major pentatonic at A=432 —
