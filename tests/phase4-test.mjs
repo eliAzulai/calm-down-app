@@ -42,13 +42,10 @@ function log(check, pass, detail) {
   await page.click('.profile-card.filled');
   await page.waitForTimeout(600);
 
-  // AUTHORIZED REFRESH (Spec 4 B4): the ring grew from 12 modes to 13
-  // (7 registry modes + invert, then the original 5 legacy modes).
-  // Kept the original check name string intentionally so the historical
-  // "what does this check assert" stays greppable; only the expected count
-  // and the membership check below changed.
+  // AUTHORIZED REFRESH (Spec 5 F1): the ring grew from 13 modes to 14
+  // (8 registry modes + pond, then the original 5 legacy modes).
   const modeCount = await page.evaluate(() => MODES.length);
-  log('13 canvas modes', modeCount === 13, `${modeCount} modes`);
+  log('14 canvas modes', modeCount === 14, `${modeCount} modes`);
 
   const modeNames = await page.evaluate(() => MODES.join(', '));
   log('Modes include trails, particles, ripples, geometric, drawing',
@@ -126,8 +123,16 @@ function log(check, pass, detail) {
   await page.mouse.up();
   await page.waitForTimeout(200);
 
-  const pathCount = await page.evaluate(() => canvas.drawPaths.length);
-  log('Drawing paths created', pathCount > 10, `${pathCount} path segments`);
+  // AUTHORIZED REFRESH (Spec 5 F3): freeform is stroke-based now — the old
+  // per-segment model (canvas.drawPaths) WAS the caterpillar defect. Same
+  // intent as before: the two drags above produced substantial recorded
+  // geometry; now asserted as 2 strokes with a healthy point count.
+  const drawModel = await page.evaluate(() => ({
+    strokes: canvas.drawStrokes.length,
+    points: canvas.drawStrokes.reduce((n, s) => n + s.points.length, 0),
+  }));
+  log('Drawing strokes created', drawModel.strokes === 2 && drawModel.points > 10,
+    `${drawModel.strokes} strokes, ${drawModel.points} points`);
 
   // Drawing mode persists (no fade)
   await page.waitForTimeout(500);
@@ -145,14 +150,14 @@ function log(check, pass, detail) {
 
   await page.screenshot({ path: 'tests/screenshots/phase4-drawing.png' });
 
-  // AUTHORIZED REFRESH (Spec 4 B4): at this point we're on Freeform
+  // AUTHORIZED REFRESH (Spec 5 F1): at this point we're on Freeform
   // (drawing), having stepped from the default 'trails' entry mode through
   // particles -> ripples -> geometric -> drawing (4 sidebar-next steps so
-  // far, matching the checks above). The ring grew to 13 (7 registry modes +
-  // invert + these 5 legacy ones), so completing the lap back to Finger
-  // Trails needs 9 more steps: Freeform -> Echo -> Currents -> Orbits ->
-  // Mandala -> Bloom -> Morph -> Etch -> Invert -> Finger Trails.
-  for (let i = 0; i < 9; i++) {
+  // far, matching the checks above). The ring grew to 14 (8 registry modes +
+  // pond + these 5 legacy ones), so completing the lap back to Finger
+  // Trails needs 10 more steps: Freeform -> Echo -> Currents -> Orbits ->
+  // Mandala -> Bloom -> Morph -> Etch -> Invert -> Pond -> Finger Trails.
+  for (let i = 0; i < 10; i++) {
     await page.click('#sidebar-next');
     await page.waitForTimeout(500);
   }
@@ -244,4 +249,8 @@ function log(check, pass, detail) {
     results.filter(r => !r.pass).forEach(r => console.log(`  - ${r.check}: ${r.detail || ''}`));
   }
   console.log('========================================');
+  // CI gate (Spec 5): soft check failures must fail the suite's exit code —
+  // before this, only crashes were non-zero, so a red check sailed through
+  // the exit-code-gated battery as green.
+  process.exitCode = failed > 0 ? 1 : 0;
 })();

@@ -30,25 +30,24 @@ await page.goto(BASE);
 await page.click('.profile-card.filled');
 await page.waitForSelector('#screen-canvas.active');
 
-await check('Registry exposes 8 modes, echo first', async () => {
-  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode. invert is a registry mode
+await check('Registry exposes 9 modes, echo first', async () => {
+  // AUTHORIZED REFRESH (Spec 5 F1): 14th mode. pond is a registry mode
   // (window.VARIANTS + registry.js ORDER), so the registry list grew from
-  // 7 to 8. Not one of the plan's called-out "12-mode" literals — found via
-  // grep for registry-list-length assertions while auditing the refresh.
+  // 8 to 9.
   const list = await page.evaluate(() => window.CALM_MODES && window.CALM_MODES.list);
-  if (!list || list.length !== 8) throw new Error('list=' + JSON.stringify(list));
+  if (!list || list.length !== 9) throw new Error('list=' + JSON.stringify(list));
   if (list[0] !== 'echo') throw new Error('echo not first: ' + list[0]);
   return list.join(',');
 });
 
-await check('SW precaches mode files at v7', async () => {
+await check('SW precaches mode files at v8', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
-  const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js','modes/invert.js'];
+  const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js','modes/invert.js','modes/pond.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH: cache bumped v6->v7 for renewal-rain.mp3 precache
-  if (!body.includes('calm-station-v7')) throw new Error('cache not v7');
-  return 'v7 + 9 files';
+  // AUTHORIZED REFRESH: cache bumped v7->v8 for the pond.js precache (Spec 5)
+  if (!body.includes('calm-station-v8')) throw new Error('cache not v8');
+  return 'v8 + 10 files';
 });
 
 await check('New modes render pixels via sidebar-next cycling', async () => {
@@ -96,13 +95,13 @@ await check('New modes render pixels via sidebar-next cycling', async () => {
   return Object.keys(results).length + ' modes alive';
 });
 
-await check('Mode tray opens and lists 13 modes', async () => {
-  // AUTHORIZED REFRESH (Spec 4 B4): 13th mode
+await check('Mode tray opens and lists 14 modes', async () => {
+  // AUTHORIZED REFRESH (Spec 5 F1): 14th mode
   await page.click('#btn-modes');
   await page.waitForSelector('#mode-tray.open');
   const n = await page.locator('#mode-options .mode-option').count();
-  if (n !== 13) throw new Error('modes=' + n);
-  return '13 chips';
+  if (n !== 14) throw new Error('modes=' + n);
+  return '14 chips';
 });
 
 await check('Tray selects a mode and records signal', async () => {
@@ -415,7 +414,11 @@ await check('Echo stamps have feathered glowing edges, no outline ring', async (
 
 await check('All modes drain to clean canvas (fades)', async () => {
   const dirty = [];
-  for (const m of ['trails','particles','ripples','geometric','currents','orbits','mandala','bloom','morph']) {
+  // AUTHORIZED REFRESH (Spec 5 F1): pond joins with the strict default
+  // budget — rings live <= ~3s and tick() fully clears each frame, and its
+  // idle droplets can't fire inside this window by design (IDLE_DROP_MIN 7s
+  // > the 6.5s settle wait; droplet timers only run while untouched-idle).
+  for (const m of ['trails','particles','ripples','geometric','currents','orbits','mandala','bloom','morph','pond']) {
     await page.evaluate((mm) => { switchToMode(MODES.indexOf(mm), 'tray'); }, m);
     await page.waitForTimeout(250);
     await page.evaluate(() => {
@@ -463,7 +466,7 @@ await check('All modes drain to clean canvas (fades)', async () => {
     await page.waitForTimeout(300);
   }
   if (dirty.length) throw new Error('residue: ' + dirty.join(','));
-  return 'all 9 fade modes drain clean';
+  return 'all 10 fade modes drain clean';
 });
 
 await check('Mode error isolation falls back to trails', async () => {

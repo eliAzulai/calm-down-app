@@ -18,7 +18,7 @@ window.VARIANTS = window.VARIANTS || {};
 window.CALM_VIS = { energy: 0 }; // audio-reactivity feed; app.js writes, modes read
 
 (function () {
-  var ORDER = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch', 'invert'];
+  var ORDER = ['echo', 'currents', 'orbits', 'mandala', 'bloom', 'morph', 'etch', 'invert', 'pond'];
 
   window.CALM_MODES = {
     get list() { return ORDER.filter(function (id) { return !!window.VARIANTS[id]; }); },
