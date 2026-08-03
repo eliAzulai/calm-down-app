@@ -23,7 +23,7 @@ const ICONS = [
 const MAX_PROFILES = 2;
 const STORAGE_KEY = 'calm-station-profiles';
 
-window.APP_VERSION = 'v8'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
+window.APP_VERSION = 'v9'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
 
 // --- SVG Icon Renderer ---
 
@@ -658,6 +658,9 @@ const MODE_LABELS = {
 // exempt because persistence IS their identity (nothing to toggle), and
 // legacy modes have no registry controls at all.
 const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph', 'invert'];
+// Chime is a deliberately bounded experiment: existing modes remain silent
+// unless their own reviewed behavior (Pond) already calls CALM_CHIME.
+const CHIME_MODES = ['bloom'];
 
 // --- Screen Navigation ---
 
@@ -883,12 +886,14 @@ function applySavedModeControls(mode) {
     size: saved.size || devDefaults.size,
     sizeRandom: (saved.sizeRandom !== undefined) ? saved.sizeRandom : devDefaults.sizeRandom,
     trace: saved.trace || devDefaults.trace,
+    chime: (saved.chime !== undefined) ? saved.chime : devDefaults.chime,
   };
   if (effective.mood) { try { V.applyControl(canvas.regState, 'mood', effective.mood); } catch (e) {} }
   if (effective.character) { try { V.applyControl(canvas.regState, 'character', effective.character); } catch (e) {} }
   if (effective.size) { try { V.applyControl(canvas.regState, 'size', effective.size); } catch (e) {} }
   if (effective.sizeRandom !== undefined) { try { V.applyControl(canvas.regState, 'sizeRandom', effective.sizeRandom); } catch (e) {} }
   if (effective.trace) { try { V.applyControl(canvas.regState, 'trace', effective.trace); } catch (e) {} }
+  if (effective.chime !== undefined) { try { V.applyControl(canvas.regState, 'chime', effective.chime); } catch (e) {} }
 }
 
 function registryModeError(mode, err) {
@@ -3381,6 +3386,13 @@ var $styleMoods = document.getElementById('style-moods');
 var $styleChars = document.getElementById('style-chars');
 var $styleSize = document.getElementById('style-size');
 var $styleTrace = document.getElementById('style-trace');
+// index.html's style tray predates the bloom-only chime control. Create the
+// row beside its existing controls so this scoped feature needs no markup or
+// CSS changes: .ctlrow/.chip already provide the kid-facing tray idiom.
+var $styleChime = document.createElement('div');
+$styleChime.className = 'ctlrow';
+$styleChime.id = 'style-chime';
+$styleTray.insertBefore($styleChime, document.getElementById('style-empty'));
 var $styleEmpty = document.getElementById('style-empty');
 var styleTrayOpen = false;
 
@@ -3391,11 +3403,12 @@ function renderStyleTray() {
   var $c = $styleChars;
   var $s = $styleSize;
   var $t = $styleTrace;
+  var $h = $styleChime;
   var $e = $styleEmpty;
-  $m.textContent = ''; $c.textContent = ''; $s.textContent = ''; $t.textContent = '';
+  $m.textContent = ''; $c.textContent = ''; $s.textContent = ''; $t.textContent = ''; $h.textContent = '';
   if (!V) {
     // Legacy (non-registry) mode: no smart controls of any kind.
-    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $t.style.display = 'none'; $e.style.display = '';
+    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $t.style.display = 'none'; $h.style.display = 'none'; $e.style.display = '';
     return;
   }
   var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
@@ -3501,6 +3514,21 @@ function renderStyleTray() {
   } else {
     $t.style.display = 'none';
   }
+
+  // Bloom alone offers a chime because it is the deliberately reviewed
+  // experiment. Default Off preserves silent gardens for every profile.
+  if (CHIME_MODES.indexOf(mode) >= 0) {
+    $h.style.display = 'flex';
+    var lbl5 = document.createElement('span'); lbl5.className = 'ctl-label'; lbl5.textContent = 'Chime'; $h.appendChild(lbl5);
+    [{ id: 'off', name: 'Off', value: false }, { id: 'on', name: 'On', value: true }].forEach(function (o) {
+      var b = document.createElement('button');
+      b.className = 'chip' + (((saved.chime !== undefined ? saved.chime : false) === o.value) ? ' on' : '');
+      b.dataset.id = o.id; b.dataset.value = String(o.value); b.textContent = o.name;
+      $h.appendChild(b);
+    });
+  } else {
+    $h.style.display = 'none';
+  }
 }
 
 // Selection-sync WITHOUT rebuild — the sound panel's updateSoundUI pattern.
@@ -3525,6 +3553,10 @@ function updateStyleTraySelection() {
   var traceChips = document.querySelectorAll('#style-trace .chip');
   Array.prototype.forEach.call(traceChips, function (b) {
     b.classList.toggle('on', b.dataset.id === saved.trace || (!saved.trace && b === traceChips[0]));
+  });
+  var chimeChips = document.querySelectorAll('#style-chime .chip');
+  Array.prototype.forEach.call(chimeChips, function (b) {
+    b.classList.toggle('on', String(saved.chime !== undefined ? saved.chime : false) === b.dataset.value);
   });
 }
 
@@ -3579,6 +3611,19 @@ function handleStyleControlClick(e, kind) {
 $styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });
 $styleChars.addEventListener('click', function (e) { handleStyleControlClick(e, 'character'); });
 $styleTrace.addEventListener('click', function (e) { handleStyleControlClick(e, 'trace'); });
+$styleChime.addEventListener('click', function (e) {
+  var btn = e.target.closest('[data-value]');
+  if (!btn) return;
+  var mode = MODES[state.canvasMode];
+  if (CHIME_MODES.indexOf(mode) < 0 || !canvas.regState) return;
+  var enabled = btn.dataset.value === 'true';
+  var V = window.CALM_MODES.get(mode);
+  if (!V || !V.applyControl) return;
+  try { V.applyControl(canvas.regState, 'chime', enabled); } catch (err) { registryModeError(mode, err); return; }
+  saveModeControl(mode, 'chime', enabled);
+  recordSignal('mode_control', { mode: mode, control: 'chime', value: enabled });
+  updateStyleTraySelection();
+});
 
 // --- Quick Sidebar (Spec 4 F2): bottom-left pull-out erase/prev/next ---
 //

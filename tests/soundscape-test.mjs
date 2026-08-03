@@ -279,9 +279,9 @@ await check('SW precaches audio assets', async () => {
     'audio/sfx/chime.mp3', 'audio/sfx/drop.mp3', 'audio/sfx/bird.mp3', 'audio/sfx/bowl.mp3', 'audio/sfx/breeze.mp3'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH: cache bumped v7->v8 for the pond.js precache (Spec 5)
-  if (!body.includes('calm-station-v8')) throw new Error('cache name not bumped');
-  return 'v8 + 9 audio assets';
+  // AUTHORIZED REFRESH: cache bumped v8->v9 for the shipped bloom chime control.
+  if (!body.includes('calm-station-v9')) throw new Error('cache name not bumped');
+  return 'v9 + 9 audio assets';
 });
 
 await check('SW cache actually contains audio (real Cache Storage)', async () => {

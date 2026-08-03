@@ -40,14 +40,14 @@ await check('Registry exposes 9 modes, echo first', async () => {
   return list.join(',');
 });
 
-await check('SW precaches mode files at v8', async () => {
+await check('SW precaches mode files at v9', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js','modes/invert.js','modes/pond.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH: cache bumped v7->v8 for the pond.js precache (Spec 5)
-  if (!body.includes('calm-station-v8')) throw new Error('cache not v8');
-  return 'v8 + 10 files';
+  // AUTHORIZED REFRESH: cache bumped v8->v9 for the shipped bloom chime control.
+  if (!body.includes('calm-station-v9')) throw new Error('cache not v9');
+  return 'v9 + 10 files';
 });
 
 await check('New modes render pixels via sidebar-next cycling', async () => {
