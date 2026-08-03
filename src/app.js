@@ -23,7 +23,7 @@ const ICONS = [
 const MAX_PROFILES = 2;
 const STORAGE_KEY = 'calm-station-profiles';
 
-window.APP_VERSION = 'v9'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
+window.APP_VERSION = 'v10'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
 
 // --- SVG Icon Renderer ---
 

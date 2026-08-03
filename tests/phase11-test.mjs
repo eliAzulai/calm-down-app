@@ -237,14 +237,14 @@ await check('Version stamp visible in parent and dev; matches SW cache', async (
   return appV + ' stamped (dev + parent)';
 });
 
-await check('SW v9 precaches invert.js', async () => {
+await check('SW v10 precaches invert.js', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   const wanted = ['modes/invert.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH: cache bumped v8->v9 for the shipped bloom chime control.
-  if (!body.includes('calm-station-v9')) throw new Error('cache not v9');
-  return 'v9 + invert.js';
+  // AUTHORIZED REFRESH: cache bumped v9->v10 for the echo definition restore.
+  if (!body.includes('calm-station-v10')) throw new Error('cache not v10');
+  return 'v10 + invert.js';
 });
 
 console.log(`\nPhase 11: ${passed}/${passed + failed} checks passed`);
