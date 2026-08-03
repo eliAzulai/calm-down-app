@@ -399,6 +399,25 @@ await check('Echo stamps have a crisp definition outline (first-version look)', 
   return `hard edge (feather=${feather}px) + outline ring (${outlinePx}px)`;
 });
 
+await check('Echo morph is opt-in: one shape by default, shape-shifts when enabled', async () => {
+  // Morph toggle (2026-08-04): the lead shape's self-morphing became a
+  // kid-facing control, default "One shape" -- motion, like sound, never
+  // happens uninvited.
+  await page.evaluate(() => { switchToMode(MODES.indexOf('echo'), 'tray'); });
+  await page.waitForTimeout(250);
+  const s0 = await page.evaluate(() => ({ f: canvas.regState.live.formIdx, t: canvas.regState.live.morphT, on: !!canvas.regState.morphEnabled }));
+  if (s0.on) throw new Error('morph enabled by default');
+  if (s0.t !== 0) throw new Error('did not start on a clean form: morphT=' + s0.t);
+  await page.waitForTimeout(2200);
+  const s1 = await page.evaluate(() => ({ f: canvas.regState.live.formIdx, t: canvas.regState.live.morphT }));
+  if (s1.f !== s0.f || s1.t !== s0.t) throw new Error(`shape shifted while Off: form ${s0.f}->${s1.f}, morphT ${s0.t}->${s1.t}`);
+  await page.evaluate(() => window.CALM_MODES.get('echo').applyControl(canvas.regState, 'morph', 'morphs'));
+  await page.waitForTimeout(1000);
+  const s2 = await page.evaluate(() => canvas.regState.live.morphT);
+  if (!(s2 > 0)) throw new Error('morphT frozen after enabling: ' + s2);
+  return `still by default, advances when enabled (morphT ${s2.toFixed(2)}s)`;
+});
+
 await check('All modes drain to clean canvas (fades)', async () => {
   const dirty = [];
   // AUTHORIZED REFRESH (Spec 5 F1): pond joins with the strict default

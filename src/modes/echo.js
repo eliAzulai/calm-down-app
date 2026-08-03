@@ -270,12 +270,14 @@
     };
   }
 
-  function updateLiveObject(o, dt, dragging) {
+  function updateLiveObject(o, dt, dragging, morphOn) {
     o.age += dt;
     o.rot += o.rotSpeed * dt;
 
-    // morph clock always advances -- object keeps morphing whether held, dragged, or idle.
-    o.morphT += dt;
+    // Morph is a kid-facing opt-in (2026-08-04): the clock advances only when
+    // the Morph control says so -- nothing transforms by itself uninvited.
+    // With the clock frozen at a clean form, the boundary below never fires.
+    if (morphOn) o.morphT += dt;
     if (o.morphT >= MORPH_TIME) {
       o.morphT -= MORPH_TIME;
       o.formIdx = (o.formIdx + 1) % FORMS_PER_SET;
@@ -424,6 +426,13 @@
       if (!state) return;
       if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
       if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+      if (kind === 'morph') {
+        state.morphEnabled = (id === 'morphs');
+        // Freezing mid-transition would trap a half-blended silhouette; snap
+        // to the pure form so "One shape" always means a clean shape.
+        if (!state.morphEnabled && state.live) state.live.morphT = 0;
+        return;
+      }
       if (!state.live) return;
       var o = state.live;
       if (kind === 'mood') {
@@ -436,6 +445,13 @@
           // Re-selecting the already-active set: clear any stale pending
           // switch so a rapid A->B->A tap sequence settles back to "no-op".
           o.pendingShapeSetId = null;
+        } else if (!state.morphEnabled) {
+          // Morph frozen: no cycle boundary will ever arrive, so apply the
+          // new family now, snapped to a clean form (no mid-morph pop
+          // possible when there is no morph in flight).
+          o.shapeSetId = setId;
+          o.pendingShapeSetId = null;
+          o.morphT = 0;
         } else {
           // Defer to the next form-cycle boundary (see updateLiveObject) so
           // the live object finishes its current morph before the new set's
@@ -461,8 +477,10 @@
         stampTimer: 0,
         dragging: false,
         sizeMul: 1, sizeRandom: false,
+        morphEnabled: false,        // Morph control (2026-08-04): opt-in, default One shape
         live: makeObject(w * 0.4 + Math.random() * w * 0.2, h * 0.4 + Math.random() * h * 0.2)
       };
+      st.live.morphT = 0; // morph is opt-in: start frozen on a clean, un-blended form
       return st;
     },
 
@@ -505,7 +523,7 @@
       }
 
       var o = state.live;
-      var moved = updateLiveObject(o, dt, state.dragging);
+      var moved = updateLiveObject(o, dt, state.dragging, state.morphEnabled);
 
       if (state.dragging) {
         maybeStamp(state, o, dt, moved);
