@@ -67,8 +67,8 @@
   var SIZE_WOBBLE_HZ = 0.07;      // gentle size breathing, well under calm caps
   var SIZE_WOBBLE_AMP = 0.12;
 
-  var STAMP_DIST = 14;            // px of travel between stamps while dragging (tighter cadence)
-  var STAMP_TIME = 0.06;          // seconds between stamps while moving slowly (60ms)
+  var STAMP_DIST = 22;            // px of travel between stamps while dragging
+  var STAMP_TIME = 0.08;          // seconds between stamps while moving slowly (80ms)
   var COLOR_CYCLE_PX = 1400;      // px of travel for one full palette cycle
   var LUMA_WOBBLE = 0.10;         // slight luminance wobble per stamp (+-10%)
 
@@ -270,12 +270,14 @@
     };
   }
 
-  function updateLiveObject(o, dt, dragging) {
+  function updateLiveObject(o, dt, dragging, morphOn) {
     o.age += dt;
     o.rot += o.rotSpeed * dt;
 
-    // morph clock always advances -- object keeps morphing whether held, dragged, or idle.
-    o.morphT += dt;
+    // Morph is a kid-facing opt-in (2026-08-04): the clock advances only when
+    // the Morph control says so -- nothing transforms by itself uninvited.
+    // With the clock frozen at a clean form, the boundary below never fires.
+    if (morphOn) o.morphT += dt;
     if (o.morphT >= MORPH_TIME) {
       o.morphT -= MORPH_TIME;
       o.formIdx = (o.formIdx + 1) % FORMS_PER_SET;
@@ -347,24 +349,13 @@
     sctx.closePath();
   }
 
-  // Layered rim-glow stroke widths/alphas (outer-to-inner order doesn't
-  // matter -- each stroke straddles the path independently). Increasing
-  // width + decreasing alpha reads as a soft outward light falloff rather
-  // than a hard ring: half of each stroke overlaps the already-opaque fill
-  // (invisible there), the outer half builds a soft same-hue color ramp
-  // past the fill's true edge.
-  var RIM_GLOW_PASSES = [
-    { width: 2, alpha: 0.45 },
-    { width: 4, alpha: 0.25 },
-    { width: 6, alpha: 0.12 }
-  ];
 
-  // Stamp the object's current geometry onto the stamp canvas: an opaque
-  // fill all the way to the path, plus a soft same-hue rim-glow that fades
-  // outward -- "the colour all the way to the edge but kind of faded out a
-  // little bit... looks like it's glowing" (client language). No darker
-  // outline ring: the rim passes reuse the fill's own rgb, never a shaded
-  // (darkened) variant, so there is nothing for the eye to read as a border.
+  // Stamp the object's current geometry: opaque fill + a thin darker outline
+  // of the same hue. RESTORED 2026-08-04 to the first-version look (1b07fd8)
+  // after a field verdict: bf44370's soft rim-glow + tighter cadence read as
+  // "blurred / lost definition" on the iPad (Spec 4 F6 escalation; A/B
+  // confirmed side-by-side). The outline is what makes each after-image read
+  // as a discrete shape; phase10's edge check now guards it.
   function stampObject(state, o) {
     var sctx = state.stampCtx;
     // size control (kid slider): each stamp gets its own independently-rolled
@@ -376,33 +367,14 @@
     var rgb = currentFillRgb(o);
 
     sctx.save();
-    sctx.lineJoin = 'round';
-
-    // Pass 1: opaque fill, all the way to the path -- no gap, no separate
-    // darker line. This alone is a hard edge; pass 2 softens it.
     traceRingPath(sctx, pts);
     sctx.fillStyle = rgbStr(rgb, 1);
     sctx.fill();
-
-    // Pass 2: rim glow, painted AFTER the fill with normal 'source-over'
-    // compositing (no destination-out) so it only ever ADDS soft color past
-    // the fill's edge -- it never erodes a neighboring stamp's opaque ink on
-    // overlap, preserving the archive's overwrite semantic (new stamp still
-    // fully covers old ink with its opaque core; only the new stamp's own
-    // soft rim blends further outward over whatever's already there, which
-    // is the "smoothed out" overlap the client asked for). Three strokes of
-    // the SAME fill color (never darkened) at increasing width and
-    // decreasing alpha straddle the path -- the inner half of each stroke
-    // sits under the opaque fill (invisible), the outer half ramps alpha
-    // down over a few pixels, reading as a gentle outward glow.
-    for (var i = 0; i < RIM_GLOW_PASSES.length; i++) {
-      var pass = RIM_GLOW_PASSES[i];
-      traceRingPath(sctx, pts);
-      sctx.lineWidth = pass.width;
-      sctx.strokeStyle = rgbStr(rgb, pass.alpha);
-      sctx.stroke();
-    }
-
+    // thin, slightly-darker outline of the same hue for definition
+    sctx.lineWidth = 2;
+    sctx.lineJoin = 'round';
+    sctx.strokeStyle = rgbStr(shadeRgb(rgb, 0.68), 1);
+    sctx.stroke();
     sctx.restore();
   }
 
@@ -454,6 +426,13 @@
       if (!state) return;
       if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
       if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
+      if (kind === 'morph') {
+        state.morphEnabled = (id === 'morphs');
+        // Freezing mid-transition would trap a half-blended silhouette; snap
+        // to the pure form so "One shape" always means a clean shape.
+        if (!state.morphEnabled && state.live) state.live.morphT = 0;
+        return;
+      }
       if (!state.live) return;
       var o = state.live;
       if (kind === 'mood') {
@@ -466,6 +445,13 @@
           // Re-selecting the already-active set: clear any stale pending
           // switch so a rapid A->B->A tap sequence settles back to "no-op".
           o.pendingShapeSetId = null;
+        } else if (!state.morphEnabled) {
+          // Morph frozen: no cycle boundary will ever arrive, so apply the
+          // new family now, snapped to a clean form (no mid-morph pop
+          // possible when there is no morph in flight).
+          o.shapeSetId = setId;
+          o.pendingShapeSetId = null;
+          o.morphT = 0;
         } else {
           // Defer to the next form-cycle boundary (see updateLiveObject) so
           // the live object finishes its current morph before the new set's
@@ -491,8 +477,10 @@
         stampTimer: 0,
         dragging: false,
         sizeMul: 1, sizeRandom: false,
+        morphEnabled: false,        // Morph control (2026-08-04): opt-in, default One shape
         live: makeObject(w * 0.4 + Math.random() * w * 0.2, h * 0.4 + Math.random() * h * 0.2)
       };
+      st.live.morphT = 0; // morph is opt-in: start frozen on a clean, un-blended form
       return st;
     },
 
@@ -535,7 +523,7 @@
       }
 
       var o = state.live;
-      var moved = updateLiveObject(o, dt, state.dragging);
+      var moved = updateLiveObject(o, dt, state.dragging, state.morphEnabled);
 
       if (state.dragging) {
         maybeStamp(state, o, dt, moved);

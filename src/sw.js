@@ -2,7 +2,7 @@
 // cache-first, so an unbumped version never reaches already-installed clients.
 // Install is atomic (cache.addAll): on a flaky first visit it can fail whole;
 // accepted for this deployment (home-wifi iPad) — retry happens next visit.
-var CACHE_NAME = 'calm-station-v9';
+var CACHE_NAME = 'calm-station-v10';
 var ASSETS = [
   './',
   './index.html',

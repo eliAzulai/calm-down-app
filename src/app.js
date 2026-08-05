@@ -23,7 +23,7 @@ const ICONS = [
 const MAX_PROFILES = 2;
 const STORAGE_KEY = 'calm-station-profiles';
 
-window.APP_VERSION = 'v9'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
+window.APP_VERSION = 'v10'; // keep equal to sw.js CACHE_NAME suffix — the visible answer to "which build am I on"
 
 // --- SVG Icon Renderer ---
 
@@ -661,6 +661,10 @@ const TRACE_MODES = ['currents', 'orbits', 'mandala', 'bloom', 'morph', 'invert'
 // Chime is a deliberately bounded experiment: existing modes remain silent
 // unless their own reviewed behavior (Pond) already calls CALM_CHIME.
 const CHIME_MODES = ['bloom'];
+// Morph toggle (2026-08-04): echo's lead shape self-morphing became opt-in
+// after the definition restore made it visible -- motion, like sound, never
+// happens uninvited. Echo-only: morph mode IS morphing (identity-exempt).
+const MORPH_TOGGLE_MODES = ['echo'];
 
 // --- Screen Navigation ---
 
@@ -887,6 +891,7 @@ function applySavedModeControls(mode) {
     sizeRandom: (saved.sizeRandom !== undefined) ? saved.sizeRandom : devDefaults.sizeRandom,
     trace: saved.trace || devDefaults.trace,
     chime: (saved.chime !== undefined) ? saved.chime : devDefaults.chime,
+    morph: saved.morph || devDefaults.morph,
   };
   if (effective.mood) { try { V.applyControl(canvas.regState, 'mood', effective.mood); } catch (e) {} }
   if (effective.character) { try { V.applyControl(canvas.regState, 'character', effective.character); } catch (e) {} }
@@ -894,6 +899,7 @@ function applySavedModeControls(mode) {
   if (effective.sizeRandom !== undefined) { try { V.applyControl(canvas.regState, 'sizeRandom', effective.sizeRandom); } catch (e) {} }
   if (effective.trace) { try { V.applyControl(canvas.regState, 'trace', effective.trace); } catch (e) {} }
   if (effective.chime !== undefined) { try { V.applyControl(canvas.regState, 'chime', effective.chime); } catch (e) {} }
+  if (effective.morph) { try { V.applyControl(canvas.regState, 'morph', effective.morph); } catch (e) {} }
 }
 
 function registryModeError(mode, err) {
@@ -3393,6 +3399,10 @@ var $styleChime = document.createElement('div');
 $styleChime.className = 'ctlrow';
 $styleChime.id = 'style-chime';
 $styleTray.insertBefore($styleChime, document.getElementById('style-empty'));
+var $styleMorph = document.createElement('div');
+$styleMorph.className = 'ctlrow';
+$styleMorph.id = 'style-morph';
+$styleTray.insertBefore($styleMorph, document.getElementById('style-empty'));
 var $styleEmpty = document.getElementById('style-empty');
 var styleTrayOpen = false;
 
@@ -3404,11 +3414,12 @@ function renderStyleTray() {
   var $s = $styleSize;
   var $t = $styleTrace;
   var $h = $styleChime;
+  var $g = $styleMorph;
   var $e = $styleEmpty;
-  $m.textContent = ''; $c.textContent = ''; $s.textContent = ''; $t.textContent = ''; $h.textContent = '';
+  $m.textContent = ''; $c.textContent = ''; $s.textContent = ''; $t.textContent = ''; $h.textContent = ''; $g.textContent = '';
   if (!V) {
     // Legacy (non-registry) mode: no smart controls of any kind.
-    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $t.style.display = 'none'; $h.style.display = 'none'; $e.style.display = '';
+    $m.style.display = 'none'; $c.style.display = 'none'; $s.style.display = 'none'; $t.style.display = 'none'; $h.style.display = 'none'; $g.style.display = 'none'; $e.style.display = '';
     return;
   }
   var saved = state.activeProfileId ? (getModeControls(state.activeProfileId)[mode] || {}) : {};
@@ -3529,6 +3540,20 @@ function renderStyleTray() {
   } else {
     $h.style.display = 'none';
   }
+
+  // ---- Morph row: echo only -- "One shape" (default) vs "Shape-shifts" ----
+  if (MORPH_TOGGLE_MODES.indexOf(mode) >= 0) {
+    $g.style.display = 'flex';
+    var lbl6 = document.createElement('span'); lbl6.className = 'ctl-label'; lbl6.textContent = 'Morph'; $g.appendChild(lbl6);
+    [{ id: 'still', name: 'One shape' }, { id: 'morphs', name: 'Shape-shifts' }].forEach(function (o, i) {
+      var b = document.createElement('button');
+      b.className = 'chip' + ((saved.morph ? saved.morph === o.id : i === 0) ? ' on' : '');
+      b.dataset.id = o.id; b.textContent = o.name;
+      $g.appendChild(b);
+    });
+  } else {
+    $g.style.display = 'none';
+  }
 }
 
 // Selection-sync WITHOUT rebuild — the sound panel's updateSoundUI pattern.
@@ -3557,6 +3582,10 @@ function updateStyleTraySelection() {
   var chimeChips = document.querySelectorAll('#style-chime .chip');
   Array.prototype.forEach.call(chimeChips, function (b) {
     b.classList.toggle('on', String(saved.chime !== undefined ? saved.chime : false) === b.dataset.value);
+  });
+  var morphChips = document.querySelectorAll('#style-morph .chip');
+  Array.prototype.forEach.call(morphChips, function (b) {
+    b.classList.toggle('on', b.dataset.id === (saved.morph || 'still'));
   });
 }
 
@@ -3611,6 +3640,7 @@ function handleStyleControlClick(e, kind) {
 $styleMoods.addEventListener('click', function (e) { handleStyleControlClick(e, 'mood'); });
 $styleChars.addEventListener('click', function (e) { handleStyleControlClick(e, 'character'); });
 $styleTrace.addEventListener('click', function (e) { handleStyleControlClick(e, 'trace'); });
+$styleMorph.addEventListener('click', function (e) { handleStyleControlClick(e, 'morph'); });
 $styleChime.addEventListener('click', function (e) {
   var btn = e.target.closest('[data-value]');
   if (!btn) return;

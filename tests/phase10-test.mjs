@@ -40,14 +40,14 @@ await check('Registry exposes 9 modes, echo first', async () => {
   return list.join(',');
 });
 
-await check('SW precaches mode files at v9', async () => {
+await check('SW precaches mode files at v10', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   const wanted = ['modes/registry.js','modes/echo.js','modes/etch.js','modes/currents.js','modes/orbits.js','modes/mandala.js','modes/bloom.js','modes/morph.js','modes/invert.js','modes/pond.js'];
   const missing = wanted.filter(w => !body.includes(w));
   if (missing.length) throw new Error('missing: ' + missing.join(','));
-  // AUTHORIZED REFRESH: cache bumped v8->v9 for the shipped bloom chime control.
-  if (!body.includes('calm-station-v9')) throw new Error('cache not v9');
-  return 'v9 + 10 files';
+  // AUTHORIZED REFRESH: cache bumped v9->v10 for the echo definition restore.
+  if (!body.includes('calm-station-v10')) throw new Error('cache not v10');
+  return 'v10 + 10 files';
 });
 
 await check('New modes render pixels via sidebar-next cycling', async () => {
@@ -347,24 +347,25 @@ await check('Orbits stays-mode is bounded and accumulates ink', async () => {
   return `bounded (maxTrail=${m.maxTrail}) + ink lit=${m.lit}`;
 });
 
-await check('Echo stamps have feathered glowing edges, no outline ring', async () => {
+await check('Echo stamps have a crisp definition outline (first-version look)', async () => {
+  // AUTHORIZED REFRESH (2026-08-04, echo definition restore): this check was
+  // born guarding bf44370's soft rim-glow ("feathered edges, no outline
+  // ring") -- the exact look the owner kept reporting as "blurred / lost
+  // definition" (Spec 4 F6, escalated after a cache-free repro and an A/B
+  // against the 1b07fd8 original). Assertions INVERTED, same stamp-canvas
+  // sampling: the edge must now be hard (antialiasing only) and the darker
+  // definition outline must be PRESENT, so the de-crisping can never
+  // silently return. Outline is shadeRgb(rgb, 0.68) -> lum ratio ~0.68,
+  // comfortably below the 0.85 discrimination threshold.
   await page.evaluate(() => { switchToMode(MODES.indexOf('echo'), 'tray'); });
   await page.waitForTimeout(300);
   const box = await page.locator('#main-canvas').boundingBox();
   await page.mouse.click(box.x + 400, box.y + 400); // single stamp
   await page.waitForTimeout(500);
-  // ADAPTATION: sample the offscreen stampCanvas (the true archived-stamp
-  // pixels) rather than the composited #main-canvas. A single tap leaves the
-  // LIVE object sitting exactly on top of the stamp it just made, and the
-  // live object's own always-soft glow ring + lighter outline (drawLiveObject,
-  // unrelated to this task) dominates a main-canvas sample at that point --
-  // it satisfies "feather >= 2px, no dark ring" regardless of what
-  // stampObject() actually draws, making the check a false-positive pass
-  // against the pre-fix hard-edge+dark-outline stamp. Reading state.stampCanvas
-  // directly (same technique the "Orbits ink" check above uses for st.inkCanvas)
-  // isolates exactly what stampObject() painted, with zero live-object
-  // contamination -- this is what "no outline ring" and "feathered" must
-  // actually be verified against per the task's intent (the STAMP path).
+  // Sample the offscreen stampCanvas (the true archived-stamp pixels), not
+  // the composited #main-canvas -- the live object sits on the fresh stamp
+  // and its own glow/outline would contaminate a main-canvas read (see the
+  // Orbits ink check for the same technique).
   const scan = await page.evaluate(() => {
     const st = canvas.regState;
     const sc = st.stampCanvas;
@@ -383,33 +384,38 @@ await check('Echo stamps have feathered glowing edges, no outline ring', async (
   if (lastSolid < 2) throw new Error('no solid interior found');
   if (firstClear < 0) throw new Error('never reaches clear');
   const feather = firstClear - lastSolid;
-  if (feather < 2) throw new Error('hard edge: feather=' + feather + 'px');
-  // ADAPTATION: the task-specified "interior" window (lastSolid-4..lastSolid)
-  // assumes the last a>220 pixel is flat fill, but a fully-opaque darker
-  // OUTLINE stroke (a=255, same as fill) sits right at that boundary -- so
-  // that window can sample the outline itself as "interior", which then lets
-  // the outline pass its own dark-ring check against itself. Sample the true
-  // flat-fill interior from deep in the ray (far from any edge stroke) instead,
-  // and scan for a dark ring across the WHOLE opaque-to-clear transition
-  // (not just the sub-220-alpha feather zone), since an opaque dark outline
-  // never enters that zone at all.
+  if (feather > 4) throw new Error('soft feathered edge is back: feather=' + feather + 'px');
   const lum = p => 0.2126*p.r + 0.7152*p.g + 0.0722*p.b;
   const deepInterior = scan.slice(0, Math.min(10, lastSolid)).filter(p => p.a > 220);
   if (deepInterior.length < 3) throw new Error('not enough deep-interior samples: ' + deepInterior.length);
   const interiorLum = deepInterior.reduce((s, p) => s + lum(p), 0) / deepInterior.length;
-  // ADAPTATION: measured against the actual pre-fix outline (shadeRgb(rgb,
-  // 0.68)), the darkened ring's luminance ratio is ~0.68 -- comfortably above
-  // the task brief's illustrative 0.6 threshold, so 0.6 never trips on the
-  // real bug. Tightened to 0.85 (still well below 1.0, so legitimate AA/blend
-  // pixels on a same-hue feathered edge -- which only ever lighten or hold
-  // hue, never darken below the fill -- can't false-positive; see rim-glow
-  // pass 2 in echo.js, same color at lower alpha, not a darker shade).
   const DARK_RING_LUM_RATIO = 0.85;
-  for (let i = deepInterior.length; i < firstClear; i++) {
+  let outlinePx = 0;
+  for (let i = Math.max(deepInterior.length, lastSolid - 8); i <= lastSolid; i++) {
     const p = scan[i];
-    if (p.a > 40 && lum(p) < interiorLum * DARK_RING_LUM_RATIO) throw new Error(`dark ring at +${i - lastSolid}px (a=${p.a}): lum ${lum(p).toFixed(0)} vs interior ${interiorLum.toFixed(0)} (ratio ${(lum(p)/interiorLum).toFixed(2)})`);
+    if (p.a > 220 && lum(p) < interiorLum * DARK_RING_LUM_RATIO) outlinePx++;
   }
-  return `feather=${feather}px, no dark ring`;
+  if (!outlinePx) throw new Error('no definition outline at stamp edge (interior lum ' + interiorLum.toFixed(0) + ')');
+  return `hard edge (feather=${feather}px) + outline ring (${outlinePx}px)`;
+});
+
+await check('Echo morph is opt-in: one shape by default, shape-shifts when enabled', async () => {
+  // Morph toggle (2026-08-04): the lead shape's self-morphing became a
+  // kid-facing control, default "One shape" -- motion, like sound, never
+  // happens uninvited.
+  await page.evaluate(() => { switchToMode(MODES.indexOf('echo'), 'tray'); });
+  await page.waitForTimeout(250);
+  const s0 = await page.evaluate(() => ({ f: canvas.regState.live.formIdx, t: canvas.regState.live.morphT, on: !!canvas.regState.morphEnabled }));
+  if (s0.on) throw new Error('morph enabled by default');
+  if (s0.t !== 0) throw new Error('did not start on a clean form: morphT=' + s0.t);
+  await page.waitForTimeout(2200);
+  const s1 = await page.evaluate(() => ({ f: canvas.regState.live.formIdx, t: canvas.regState.live.morphT }));
+  if (s1.f !== s0.f || s1.t !== s0.t) throw new Error(`shape shifted while Off: form ${s0.f}->${s1.f}, morphT ${s0.t}->${s1.t}`);
+  await page.evaluate(() => window.CALM_MODES.get('echo').applyControl(canvas.regState, 'morph', 'morphs'));
+  await page.waitForTimeout(1000);
+  const s2 = await page.evaluate(() => canvas.regState.live.morphT);
+  if (!(s2 > 0)) throw new Error('morphT frozen after enabling: ' + s2);
+  return `still by default, advances when enabled (morphT ${s2.toFixed(2)}s)`;
 });
 
 await check('All modes drain to clean canvas (fades)', async () => {

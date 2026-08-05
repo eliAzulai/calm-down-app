@@ -56,12 +56,12 @@ await check('Pond registered: registry list, MODES ring, tray chip', async () =>
   return 'registered + tray chip';
 });
 
-await check('SW v9 precaches pond.js', async () => {
+await check('SW v10 precaches pond.js', async () => {
   const body = await (await page.request.get(`${BASE}/sw.js`)).text();
   if (!body.includes('modes/pond.js')) throw new Error('pond.js not in ASSETS');
-  // AUTHORIZED REFRESH: cache bumped v8->v9 for the shipped bloom chime control.
-  if (!body.includes('calm-station-v9')) throw new Error('cache not v9');
-  return 'v9 + pond.js';
+  // AUTHORIZED REFRESH: cache bumped v9->v10 for the echo definition restore.
+  if (!body.includes('calm-station-v10')) throw new Error('cache not v10');
+  return 'v10 + pond.js';
 });
 
 await check('Style tray for pond: Mood + Size shown, Character + Trace hidden', async () => {
