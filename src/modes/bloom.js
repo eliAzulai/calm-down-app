@@ -368,6 +368,9 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     this.sizeMul = 1;
     this.sizeRandom = false;
     this.traceMode = 'fades'; // kid-facing trace control: 'fades' (default) | 'stays'
+    // Sound must be an explicit, per-profile opt-in. Bloom's own idle and
+    // propagation paths never consult this flag; only pointer('down') does.
+    this.chimeEnabled = false;
   }
 
   function init(w, h, theme) {
@@ -482,6 +485,17 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     if (kind === 'down') {
       state.idleTimer = 0;
       state.hasTouched = true;
+
+      // Optional plumbing, deliberately kept at the only kid-initiated
+      // boundary. No move/up/idle/bloom-growth path can produce a chime.
+      if (state.chimeEnabled && window.CALM_CHIME && window.CALM_CHIME.ping) {
+        window.CALM_CHIME.ping({
+          pitch: 1 - y / (state.h || 1),
+          intensity: 0.5,
+          depth: 0,
+          pan: x / (state.w || 1) * 2 - 1
+        });
+      }
 
       // If tapping near an existing (non-dissolving) bloom, grab it for hold
       // interaction instead of always spawning a new one.
@@ -972,6 +986,7 @@ var BLOOM_PALETTE = ['#e8a3a3', '#eec9a0', '#c3b4e0', '#faf3e3', '#9c7c9e'];
     if (kind === 'size') { state.sizeMul = Math.max(0.6, Math.min(1.6, Number(id) || 1)); return; }
     if (kind === 'sizeRandom') { state.sizeRandom = !!id; return; }
     if (kind === 'trace') { state.traceMode = (id === 'stays') ? 'stays' : 'fades'; return; }
+    if (kind === 'chime') { state.chimeEnabled = !!id; return; }
     if (kind === 'mood') {
       var mood = findMood(id);
       state.moodId = mood.id;
